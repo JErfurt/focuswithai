@@ -11,6 +11,7 @@ second one uses AI to generate "Punishment" message.
 
 *JErfurt*
 
+[Смотреть видео](https://www.youtube.com/watch?v=AqjlrRfCPb8)
 
 ## Installation
 Use Conda or Venv for reqs don't make mess with system. 
