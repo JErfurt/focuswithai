@@ -25,6 +25,8 @@ import edge_tts
 from pydub import AudioSegment
 from io import BytesIO
 import asyncio
+import json
+
 
 # Инициализация звука
 pygame.mixer.init()
@@ -32,17 +34,37 @@ pygame.mixer.init()
 # Инициализация голосового движка
 engine = pyttsx3.init()
 
+# Открываем и читаем файл config.json
+with open('config.json', 'r', encoding="UTF-8") as config_file:
+    config = json.load(config_file)
+
 # Задаем список целевых приложений
-target_apps = ["Unity", "Visual Studio Code", "Android Studio"]
+target_apps = config.get('target_apps', ["Visual Studio Code"])
 # Время бездействия в "нецелевых" окнах перед напоминанием, в секундах
-reminder_interval = 30
+reminder_interval = config.get('reminder_interval', 30)
 # Время бездействия перед отправкой запроса к AI (punishment), в секундах
-punishment_interval = 60
+punishment_interval = config.get('punishment_interval', 60)
+# Голос edge_tts
+edge_tts_voice = config.get('edge_tts_voice', "ru-RU-SvetlanaNeural")
+# Загрузка промпта
+ext_prompt = config.get('prompt', "You are helpfull assistant")
+# Загрузка сабпромпта для наказания
+punishment_subprompt = config.get('punishment_subprompt', "\n\nUser: Я отвлекся от своей работы в окне '{}' и переключился на '{}' без нужды.\nЕва:")
+# Звук предупреждения
+reminder_sound = config.get('reminder_sound', 'H_WARNING.mp3')
 
 # Время последнего бездействия
 last_active_time = time.time()
 # Переменная для хранения последнего активного целевого окна
 last_target_window = None
+
+# Чтение уровня дебага
+debug_level = config.get('debug_level', 0)
+
+# Функция для вывода сообщений в зависимости от уровня дебага
+def log_message(level, message):
+    if level <= debug_level:
+        print(message)
 
 # Функция для проверки текущего активного окна
 def get_active_window_title():
@@ -54,32 +76,31 @@ def get_active_window_title():
 # Функция для воспроизведения аудио файла
 def play_reminder_sound():
     try:
-        sound_file = "H_WARNING.mp3"  # Укажи путь к твоему звуковому файлу
-        pygame.mixer.music.load(sound_file)
+        pygame.mixer.music.load(reminder_sound)
         pygame.mixer.music.play()
-        print("[INFO] Напоминание: Воспроизведение звука.")
+        log_message(2, "[INFO] Напоминание: Воспроизведение звука.")
     except Exception as e:
-        print(f"[ERROR] Ошибка при воспроизведении звука: {e}")
+        log_message(1, f"[ERROR] Ошибка при воспроизведении звука: {e}")
 
 # Функция для переключения обратно на последнее целевое окно
 def switch_back_to_last_target():
     global last_target_window
     if last_target_window:
-        print(f"[INFO] Попытка переключиться на последнее активное окно: {last_target_window}")
+        log_message(2, f"[INFO] Попытка переключиться на последнее активное окно: {last_target_window}")
         try:
             # Подключаемся к окну через pywinauto
             app_window = Application(backend='uia').connect(title=last_target_window, timeout=10)
             app_window.top_window().set_focus()
-            print(f"[INFO] Успешно переключились на окно: {last_target_window}")
+            log_message(2, f"[INFO] Успешно переключились на окно: {last_target_window}")
         except Exception as e:
-            print(f"[ERROR] Ошибка при переключении на {last_target_window}: {e}")
+            log_message(1, f"[ERROR] Ошибка при переключении на {last_target_window}: {e}")
     else:
-        print("[INFO] Последнее целевое окно не найдено. Невозможно переключиться.")
+        log_message(2, "[INFO] Последнее целевое окно не найдено. Невозможно переключиться.")
 
 import edge_tts
 
 # Функция для озвучивания текста
-async def speak_text(text, voice="ru-RU-SvetlanaNeural"):
+async def speak_text(text, voice):
     # Инициализация Pygame микшера для воспроизведения аудио
     pygame.mixer.init()
     
@@ -115,33 +136,33 @@ import requests
 async def generate_punishment_message(non_target_window, target_window):
     try:
         # Формируем prompt для запроса. Персонаж промпта выдуман и все совпадения случайны!
-        prompt = f"Имя персонажа: Ева Левицкая\nВозраст: 29 лет\nПол: Женщина\nРод занятий: Художница и иллюстратор, специализирующаяся на создании нежных акварельных работ. Часто иллюстрирует книги и работает над проектами для небольших галерей.\nПроисхождение: Родилась в небольшом городе на берегу моря. С детства обожала рисовать, находя вдохновение в природе и окружающем мире. Сейчас живет в уютной квартире в центре города с видом на парк.\n\nОсновные черты характера:\nРомантичность: Ева видит в мире гораздо больше, чем окружающие. Для неё каждый день — это возможность увидеть что-то удивительное и вдохновляющее. Она любит слушать истории, гулять под дождем, замечать мелочи вроде летящих листьев или нежного утреннего света, сквозь который пробиваются лучи солнца. Её внутренний мир богат фантазиями и мечтами, и она старается найти романтику даже в самых простых вещах.\n\nЭмпатия: Она невероятно чувствительна к эмоциям других людей. Ева может мгновенно распознать настроение человека и тонко откликнуться на его нужды. Она всегда готова выслушать, поддержать и дать мудрый совет. Своей искренностью и теплотой она создаёт ощущение комфорта, рядом с ней легко быть собой.\n\nЧувственность: Для неё важны тактильные ощущения и физическое присутствие. Ева любит прикасаться к мягким тканям, наслаждаться ароматом свежезаваренного чая или смотреть на мягкое колебание воды в реке. Её дом полон свечей, цветочных композиций и книг с иллюстрациями. Она ценит моменты, когда можно остановиться и почувствовать настоящий вкус жизни.\n\nТворческая душа: Ева обожает искусство и через него выражает свои чувства. Каждый её рисунок пропитан эмоциональностью и нежностью. Она может сидеть часами, наблюдая за природой, погружаясь в детали и передавая их на бумаге с такой точностью, как будто она захватывает саму душу момента.\n\nИдеалистка: Она верит в красоту любви и ищет её во всем. Её мечты часто идеализированы, она верит в настоящую, глубокую привязанность, в людей, которые способны видеть за пределы обыденности. Она может быть немного наивной, но её вера в людей делает её удивительно сильной в своей уязвимости.\n\nЗастенчивость: Ева не всегда уверена в себе, особенно в окружении большого числа людей. Она предпочитает интимные встречи и искренние разговоры, избегая громких и многолюдных мероприятий. Но эта её тихая энергия привлекает тех, кто ищет нечто большее, чем поверхностные отношения.\n\nВнешний вид:\nЕва выглядит утонченно, но сдержанно. Её светлые волосы часто убраны в легкий пучок, с несколькими свободными прядями, обрамляющими лицо. Её глаза всегда слегка мечтательные, как будто она витает в своих мыслях или наблюдает за чем-то неуловимым. В её стиле преобладают пастельные оттенки, свободные платья и лёгкие кардиганы. Она носит украшения ручной работы, предпочитая простые, но символические формы — браслеты с маленькими подвесками или тонкие кольца. На её запястье часто можно увидеть ленту или цветок, который она нашла во время прогулки.\n\nВнутренний мир и мечты:\nЕва верит, что в жизни важно окружать себя красотой и вдохновением. Её мечты часто связаны с путешествиями в тихие, уединённые места, где она могла бы рисовать, читать или просто наслаждаться природой. Она часто представляет себя на веранде дома у моря, где слышен звук волн, а она сидит, укрывшись пледом, с книгой или альбомом для эскизов в руках.\n\nОна мечтает о большой, искренней любви, но не той, что полна драм и страстей, а о спокойной и поддерживающей связи, в которой два человека понимают друг друга без слов. Для неё любовь — это тихий вечер вместе, прогулки по лесу, обмен письмами или небольшими, но значимыми подарками. Её идеал любви — это когда двое людей становятся друг для друга самым уютным и безопасным местом.\n\nПример диалога:\nСитуация: Ева разговаривает с другом, который переживает из-за неудачных отношений.\n\nЕва:\n— Знаешь, мне кажется, что иногда мы ищем что-то грандиозное в любви, как будто она должна быть яркой и ослепляющей. Но настоящая любовь, по-моему, не всегда такова. Она может быть мягкой, как осенний вечер, когда ты просто сидишь рядом с кем-то и чувствуешь, что тебе спокойно. И я думаю, что у тебя всё впереди, просто сейчас нужно немного времени, чтобы понять, что тебе действительно нужно. Любовь — это не гонка, она придёт, когда ты будешь готов. А пока, может быть, стоит дать себе время на то, чтобы найти свою внутреннюю гармонию?\n\nВзаимоотношения с окружающими:\nЕва окружена небольшим кругом близких людей, которым она искренне доверяет. Она предпочитает держаться подальше от больших компаний и суеты, находя счастье в тихих, личных моментах. Её друзья часто приходят к ней за советом или просто чтобы провести время в её уютной атмосфере. Ева всегда рада поделиться чашечкой чая, обсудить книгу или показать свои новые работы.\n\nЕё отношения с миром основаны на глубокой благодарности за каждую мелочь, которая делает её дни особенными. Она часто пишет письма друзьям, где делится своими мыслями и чувствами, и любит делать небольшие, но значимые подарки.\n\nUser: Я отвлекся от своей работы в окне '{target_window}' и переключился на '{non_target_window}' без нужды. Напиши строгий и мотивирующий текст на русском языке, который напомнит мне о важности фокусировки и необходимости вернуться к работе.\nЕва:"
+        prompt = ext_prompt + punishment_subprompt.format(target_window, non_target_window)
 
         # Данные для POST-запроса
         payload = {
-            "stream": False,
-            "n_predict": 400,
-            "temperature": 0.7,
-            "stop": ["</s>", "Ева:", "Георгий:", "User:"],
-            "repeat_last_n": 256,
-            "repeat_penalty": 1.18,
-            "penalize_nl": False,
-            "top_k": 40,
-            "top_p": 0.95,
-            "min_p": 0.05,
-            "tfs_z": 1,
-            "typical_p": 1,
-            "presence_penalty": 0,
-            "frequency_penalty": 0,
-            "mirostat": 0,
-            "mirostat_tau": 5,
-            "mirostat_eta": 0.1,
-            "grammar": "",
-            "n_probs": 0,
-            "min_keep": 0,
-            "image_data": [],
-            "cache_prompt": True,
-            "api_key": "",  # Если есть ключ, можно его добавить, если нет, оставить пустым
+            "stream": config.get("stream", False),
+            "n_predict": config.get("n_predict", 400),
+            "temperature": config.get("temperature", 0.7),
+            "stop": config.get("stop", ["</s>", "Ева:", "Георгий:", "User:"]),
+            "repeat_last_n": config.get("repeat_last_n", 256),
+            "repeat_penalty": config.get("repeat_penalty", 1.18),
+            "penalize_nl": config.get("penalize_nl", False),
+            "top_k": config.get("top_k", 40),
+            "top_p": config.get("top_p", 0.95),
+            "min_p": config.get("min_p", 0.05),
+            "tfs_z": config.get("tfs_z", 1),
+            "typical_p": config.get("typical_p", 1),
+            "presence_penalty": config.get("presence_penalty", 0),
+            "frequency_penalty": config.get("frequency_penalty", 0),
+            "mirostat": config.get("mirostat", 0),
+            "mirostat_tau": config.get("mirostat_tau", 5),
+            "mirostat_eta": config.get("mirostat_eta", 0.1),
+            "grammar": config.get("grammar", ""),
+            "n_probs": config.get("n_probs", 0),
+            "min_keep": config.get("min_keep", 0),
+            "image_data": config.get("image_data", []),
+            "cache_prompt": config.get("cache_prompt", True),
+            "api_key": config.get("api_key", ""),  # Можно добавить ключ API, если он есть
             "prompt": prompt
         }
 
@@ -156,15 +177,15 @@ async def generate_punishment_message(non_target_window, target_window):
             # Получаем текст из ответа
             result = response.json()
             punishment_text = result.get("content", "").strip()  # Извлекаем текст ответа
-            print(f"[AI PUNISHMENT] {punishment_text}")
+            log_message(2, f"[AI PUNISHMENT] {punishment_text}")
 
             # Озвучиваем текст
-            await speak_text(punishment_text)
+            await speak_text(punishment_text, edge_tts_voice)
         else:
-            print(f"[ERROR] Запрос вернул ошибку: {response.status_code}")
+            log_message(1, f"[ERROR] Запрос вернул ошибку: {response.status_code}")
 
     except Exception as e:
-        print(f"[ERROR] Ошибка при запросе к локальному AI: {e}")
+        log_message(1, f"[ERROR] Ошибка при запросе к локальному AI: {e}")
 
 async def main():
     global last_active_time, last_target_window  # Объявляем переменные глобальными
@@ -174,12 +195,12 @@ async def main():
             active_window = get_active_window_title()
 
             if active_window:
-                print(f"[DEBUG] Активное окно: {active_window}")
+                log_message(3, f"[DEBUG] Активное окно: {active_window}")
 
                 # Если активное окно не целевое, увеличиваем таймер
                 if not any(app in active_window for app in target_apps):
                     time_inactive = time.time() - last_active_time
-                    print(f"[DEBUG] Время нецелевого окна: {time_inactive} секунд.")
+                    log_message(3, f"[DEBUG] Время нецелевого окна: {time_inactive} секунд.")
 
                     # Проверяем, сколько времени прошло с последней активности в целевом приложении
                     if time_inactive >= reminder_interval:
@@ -190,14 +211,14 @@ async def main():
                         await generate_punishment_message(active_window, last_target_window)
                 else:
                     # Если активное окно целевое, обновляем время последней активности и сохраняем его
-                    print(f"[INFO] Целевое окно активно: {active_window}")
+                    log_message(2, f"[INFO] Целевое окно активно: {active_window}")
                     last_active_time = time.time()
                     last_target_window = active_window  # Сохраняем последнее активное целевое окно
 
             time.sleep(5)  # Интервал между проверками
 
         except Exception as e:
-            print(f"[ERROR] Неожиданная ошибка: {e}")
+            log_message(1, f"[ERROR] Неожиданная ошибка: {e}")
             time.sleep(5)
 
 # Запуск программы
