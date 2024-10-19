@@ -50,9 +50,15 @@ edge_tts_voice = config.get('edge_tts_voice', "ru-RU-SvetlanaNeural")
 ext_prompt = config.get('prompt', "You are helpfull assistant")
 # Загрузка сабпромпта для наказания
 punishment_subprompt = config.get('punishment_subprompt', "\n\nUser: Я отвлекся от своей работы в окне '{}' и переключился на '{}' без нужды.\nЕва:")
+# Загрузка сабпромпта для похвалы
+praise_subprompt = config.get('praise_subprompt', "\n\nUser: Я работал сфокусированно в окне '{}' без отвлечений целых '{}' секунд! Напиши воодушевляющий и мотивирующий текст на русском языке, который похвалит меня за отличную работу и напомнит, как важно продолжать в том же духе.\nЕва:")
 # Звук предупреждения
 reminder_sound = config.get('reminder_sound', 'H_WARNING.mp3')
+# Время без отвлечений перед похвалой, в секундах
+praise_interval = config.get('praise_interval', 1800)  # Например, 30 минут
 
+# Переменная для хранения времени последнего фокусированного состояния
+last_focus_time = time.time()
 # Время последнего бездействия
 last_active_time = time.time()
 # Переменная для хранения последнего активного целевого окна
@@ -134,10 +140,19 @@ import requests
 
 # Функция для отправки запроса к локальному AI для "punishment" текста
 async def generate_punishment_message(non_target_window, target_window):
-    try:
-        # Формируем prompt для запроса. Персонаж промпта выдуман и все совпадения случайны!
-        prompt = ext_prompt + punishment_subprompt.format(target_window, non_target_window)
+    # Формируем prompt для запроса. Персонаж промпта выдуман и все совпадения случайны!
+    prompt = ext_prompt + punishment_subprompt.format(target_window, non_target_window)
+    await send_to_llama(prompt)
 
+# Функция для похвалы за длительную работу без отвлечений
+async def generate_praise_message(active_window):
+    # Формируем prompt для запроса. Персонаж промпта выдуман и все совпадения случайны!
+    prompt = ext_prompt + praise_subprompt.format(active_window, last_focus_time)
+    print(prompt)
+    await send_to_llama(prompt)
+
+async def send_to_llama(prompt):
+    try:
         # Данные для POST-запроса
         payload = {
             "stream": config.get("stream", False),
@@ -177,7 +192,7 @@ async def generate_punishment_message(non_target_window, target_window):
             # Получаем текст из ответа
             result = response.json()
             punishment_text = result.get("content", "").strip()  # Извлекаем текст ответа
-            log_message(2, f"[AI PUNISHMENT] {punishment_text}")
+            log_message(2, f"[AI RESPONSE] {punishment_text}")
 
             # Озвучиваем текст
             await speak_text(punishment_text, edge_tts_voice)
@@ -187,8 +202,9 @@ async def generate_punishment_message(non_target_window, target_window):
     except Exception as e:
         log_message(1, f"[ERROR] Ошибка при запросе к локальному AI: {e}")
 
+
 async def main():
-    global last_active_time, last_target_window  # Объявляем переменные глобальными
+    global last_active_time, last_target_window, last_focus_time  # Объявляем переменные глобальными
     # Основной цикл отслеживания окон
     while True:
         try:
@@ -206,14 +222,22 @@ async def main():
                     if time_inactive >= reminder_interval:
                         play_reminder_sound()  # Воспроизводим напоминание
                     if time_inactive >= punishment_interval:
+                        # Сброс таймера фокусировки
+                        last_focus_time = time.time()
                         # Генерация наказания через AI
                         switch_back_to_last_target()  # Переключаем обратно на последнее целевое окно
                         await generate_punishment_message(active_window, last_target_window)
                 else:
                     # Если активное окно целевое, обновляем время последней активности и сохраняем его
-                    log_message(2, f"[INFO] Целевое окно активно: {active_window}")
                     last_active_time = time.time()
-                    last_target_window = active_window  # Сохраняем последнее активное целевое окно
+                    last_target_window = active_window
+
+                    # Проверка, если пользователь долго работал без отвлечений
+                    time_focused = time.time() - last_focus_time
+                    log_message(2, f"[INFO] Целевое окно активно: {active_window}, {time_focused} секунд")
+                    if time_focused >= praise_interval:
+                        await generate_praise_message(active_window)
+                        last_focus_time = time.time()  # Сброс времени после похвалы
 
             time.sleep(5)  # Интервал между проверками
 
@@ -222,4 +246,5 @@ async def main():
             time.sleep(5)
 
 # Запуск программы
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
