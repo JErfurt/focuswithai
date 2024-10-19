@@ -3,7 +3,8 @@
 
 Python script to stay focus on applications for work.
 One timer alert you every 5 second to get back to work,
-second one uses AI to generate "Punishment" message.
+second one uses AI to generate "Punishment" message
+third one pushes AI to generate "Praise" message.
 
 ***I was abandoned by one of my friends and no one can moral support me to work so I was trying enchanse my AI interface that was too much work, but one day I found out this solution and make it in one python script.*** 
 
@@ -11,7 +12,7 @@ second one uses AI to generate "Punishment" message.
 
 *JErfurt*
 
-[Смотреть видео](https://www.youtube.com/watch?v=AqjlrRfCPb8)
+[YT video (old)](https://www.youtube.com/watch?v=AqjlrRfCPb8)
 
 ## Installation
 Use Conda or Venv for reqs don't make mess with system. 
