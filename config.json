@@ -2,7 +2,7 @@
     "debug_level": 3,
     
     "target_apps" : [
-        "Unity", "Visual Studio Code", "Android Studio", "Supabase"
+        "Unity", "Visual Studio Code", "Android Studio", "Supabase", "FlutterFlow"
     ],
     "reminder_interval" : 30,
     "punishment_interval" : 60,
@@ -15,6 +15,8 @@
     "punishment_subprompt" : "\n\nUser: Я отвлекся от своей работы в окне '{}' и переключился на '{}' без нужды. Напиши строгий и мотивирующий текст на русском языке, который напомнит мне о важности фокусировки и необходимости вернуться к работе.\nЕва:",
     "praise_subprompt" : "\n\nUser: Я работал сфокусированно в окне '{}' без отвлечений целых '{}' секунд! Напиши воодушевляющий и мотивирующий текст на русском языке, который похвалит меня за отличную работу и напомнит, как важно продолжать в том же духе.\nЕва:",
     
+    "discord_presence" : false,
+
     "stream": false,
     "n_predict": 400,
     "temperature": 0.7,

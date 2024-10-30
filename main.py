@@ -26,6 +26,7 @@ from pydub import AudioSegment
 from io import BytesIO
 import asyncio
 import json
+import discord
 
 
 # Инициализация звука
@@ -51,12 +52,16 @@ ext_prompt = config.get('prompt', "You are helpfull assistant")
 # Загрузка сабпромпта для наказания
 punishment_subprompt = config.get('punishment_subprompt', "\n\nUser: Я отвлекся от своей работы в окне '{}' и переключился на '{}' без нужды.\nЕва:")
 # Загрузка сабпромпта для похвалы
-praise_subprompt = config.get('praise_subprompt', "\n\nUser: Я работал сфокусированно в окне '{}' без отвлечений целых '{}' секунд! Напиши воодушевляющий и мотивирующий текст на русском языке, который похвалит меня за отличную работу и напомнит, как важно продолжать в том же духе.\nЕва:")
+praise_subprompt = config.get('praise_subprompt', "\n\nUser: Я работал сфокусированно в окне '{}' без отвлечений целых '{}' секунд!\nЕва:")
 # Звук предупреждения
 reminder_sound = config.get('reminder_sound', 'H_WARNING.mp3')
 # Время без отвлечений перед похвалой, в секундах
 praise_interval = config.get('praise_interval', 1800)  # Например, 30 минут
+# discord presence
+discord_presence_state = config.get('discord_presence', False)
 
+# Переменная для хранения времени начала фокусированного состояния
+start_focus_time = time.time()
 # Переменная для хранения времени последнего фокусированного состояния
 last_focus_time = time.time()
 # Время последнего бездействия
@@ -148,7 +153,6 @@ async def generate_punishment_message(non_target_window, target_window):
 async def generate_praise_message(active_window):
     # Формируем prompt для запроса. Персонаж промпта выдуман и все совпадения случайны!
     prompt = ext_prompt + praise_subprompt.format(active_window, last_focus_time)
-    print(prompt)
     await send_to_llama(prompt)
 
 async def send_to_llama(prompt):
@@ -203,8 +207,10 @@ async def send_to_llama(prompt):
         log_message(1, f"[ERROR] Ошибка при запросе к локальному AI: {e}")
 
 
+status_focus = False
+status_unfocus = False
 async def main():
-    global last_active_time, last_target_window, last_focus_time  # Объявляем переменные глобальными
+    global last_active_time, last_target_window, last_focus_time, start_focus_time, status_focus, status_unfocus  # Объявляем переменные глобальными
     # Основной цикл отслеживания окон
     while True:
         try:
@@ -221,12 +227,19 @@ async def main():
                     # Проверяем, сколько времени прошло с последней активности в целевом приложении
                     if time_inactive >= reminder_interval:
                         play_reminder_sound()  # Воспроизводим напоминание
+                        status_focus = False
+                        if not status_unfocus and discord_presence_state:
+                            discord.restart_rpc(1133456581988732970, "Time in full focus:", "Unfocus State", int(time.mktime(time.localtime(start_focus_time))), "fix")
+                            status_unfocus = True
                     if time_inactive >= punishment_interval:
                         # Сброс таймера фокусировки
                         last_focus_time = time.time()
+                        start_focus_time = time.time()
                         # Генерация наказания через AI
                         switch_back_to_last_target()  # Переключаем обратно на последнее целевое окно
                         await generate_punishment_message(active_window, last_target_window)
+
+
                 else:
                     # Если активное окно целевое, обновляем время последней активности и сохраняем его
                     last_active_time = time.time()
@@ -239,6 +252,11 @@ async def main():
                         await generate_praise_message(active_window)
                         last_focus_time = time.time()  # Сброс времени после похвалы
 
+                    status_unfocus = False
+                    if not status_focus and discord_presence_state:
+                        discord.restart_rpc(1133456581988732970, "Time in full focus:", "Focus State", int(time.mktime(time.localtime(start_focus_time))), "cat")
+                        status_focus = True
+
             time.sleep(5)  # Интервал между проверками
 
         except Exception as e:
@@ -248,3 +266,4 @@ async def main():
 # Запуск программы
 if __name__ == "__main__":
     asyncio.run(main())
+    discord.stop_rpc()

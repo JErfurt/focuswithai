@@ -1,2 +1,3 @@
 .venv
 speaktest.py
+__pycache__
