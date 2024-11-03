@@ -2,7 +2,7 @@
     "debug_level": 3,
     
     "target_apps" : [
-        "Unity", "Visual Studio Code", "Android Studio", "Supabase", "FlutterFlow"
+        "Unity", "Visual Studio Code", "Android Studio", "Supabase", "FlutterFlow", "Code"
     ],
     "reminder_interval" : 30,
     "punishment_interval" : 60,
