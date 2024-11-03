@@ -20,9 +20,7 @@ import pygetwindow as gw
 import time
 from pywinauto.application import Application
 import pygame
-import pyttsx3
 import edge_tts
-from pydub import AudioSegment
 from io import BytesIO
 import asyncio
 import json
@@ -31,9 +29,6 @@ import discord
 
 # Инициализация звука
 pygame.mixer.init()
-
-# Инициализация голосового движка
-engine = pyttsx3.init()
 
 # Открываем и читаем файл config.json
 with open('config.json', 'r', encoding="UTF-8") as config_file:
@@ -124,17 +119,11 @@ async def speak_text(text, voice):
         if chunk["type"] == "audio":
             audio.write(chunk["data"])
     
-    # Перематываем поток в начало и преобразуем MP3 в WAV с помощью pydub
+    # Перематываем поток в начало
     audio.seek(0)
-    audio_segment = AudioSegment.from_mp3(audio)
-    
-    # Сохраняем аудиосегмент в байты WAV
-    wav_io = BytesIO()
-    audio_segment.export(wav_io, format="wav")
-    wav_io.seek(0)
-    
+
     # Инициализация Pygame микшера для воспроизведения
-    pygame.mixer.music.load(wav_io)
+    pygame.mixer.music.load(audio)
     pygame.mixer.music.play()
 
     # Ожидание завершения воспроизведения
