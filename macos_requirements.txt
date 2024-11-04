@@ -1,0 +1,5 @@
+pyobjc
+pygame==2.6.1
+edge-tts==6.1.12
+requests==2.32.3
+discord-rpc==5.1

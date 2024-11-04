@@ -16,13 +16,17 @@
 # Этот проект использует библиотеки, лицензированные под MIT, BSD и LGPL лицензиями.
 # ---------------------------------------------------------------
 
-import pygetwindow as gw
+import sys
+
+if sys.platform == "darwin":
+    from AppKit import NSWorkspace, NSApplicationActivateIgnoringOtherApps
+elif sys.platform == "win32":
+    import pygetwindow as gw
+    from pywinauto.application import Application
+
 import time
-from pywinauto.application import Application
 import pygame
-import pyttsx3
 import edge_tts
-from pydub import AudioSegment
 from io import BytesIO
 import asyncio
 import json
@@ -31,9 +35,6 @@ import discord
 
 # Инициализация звука
 pygame.mixer.init()
-
-# Инициализация голосового движка
-engine = pyttsx3.init()
 
 # Открываем и читаем файл config.json
 with open('config.json', 'r', encoding="UTF-8") as config_file:
@@ -85,9 +86,14 @@ def log_message(level, message):
 
 # Функция для проверки текущего активного окна
 def get_active_window_title():
-    window = gw.getActiveWindow()
-    if window:
-        return window.title
+    if sys.platform == "darwin":
+        active_app = NSWorkspace.sharedWorkspace().activeApplication()
+        app_name = active_app['NSApplicationName']
+        return app_name
+    elif sys.platform == "win32":
+        window = gw.getActiveWindow()
+        if window:
+            return window.title
     return None
 
 # Функция для воспроизведения аудио файла
@@ -105,10 +111,26 @@ def switch_back_to_last_target():
     if last_target_window:
         log_message(2, f"[INFO] Попытка переключиться на последнее активное окно: {last_target_window}")
         try:
-            # Подключаемся к окну через pywinauto
-            app_window = Application(backend='uia').connect(title=last_target_window, timeout=10)
-            app_window.top_window().set_focus()
+            if sys.platform == "darwin":
+                # Получаем список всех запущенных приложений
+                running_apps = NSWorkspace.sharedWorkspace().runningApplications()
+                
+                find = False
+                for app in running_apps:
+                    if app.localizedName() == last_target_window:
+                        # Если имя приложения совпадает, активируем его
+                        app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps)
+                        find = True
+                        break
+                if not find:
+                    raise Exception("Приложение не найдено")
+            elif sys.platform == "win32":
+                # Подключаемся к окну через pywinauto
+                app_window = Application(backend='uia').connect(title=last_target_window, timeout=10)
+                app_window.top_window().set_focus()
+            
             log_message(2, f"[INFO] Успешно переключились на окно: {last_target_window}")
+
         except Exception as e:
             log_message(1, f"[ERROR] Ошибка при переключении на {last_target_window}: {e}")
     else:
@@ -130,17 +152,11 @@ async def speak_text(text, voice):
         if chunk["type"] == "audio":
             audio.write(chunk["data"])
     
-    # Перематываем поток в начало и преобразуем MP3 в WAV с помощью pydub
+    # Перематываем поток в начало
     audio.seek(0)
-    audio_segment = AudioSegment.from_mp3(audio)
-    
-    # Сохраняем аудиосегмент в байты WAV
-    wav_io = BytesIO()
-    audio_segment.export(wav_io, format="wav")
-    wav_io.seek(0)
-    
+
     # Инициализация Pygame микшера для воспроизведения
-    pygame.mixer.music.load(wav_io)
+    pygame.mixer.music.load(audio)
     pygame.mixer.music.play()
 
     # Ожидание завершения воспроизведения
