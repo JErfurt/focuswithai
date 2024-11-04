@@ -7,6 +7,8 @@
     "reminder_interval" : 30,
     "punishment_interval" : 60,
     "praise_interval" : 1800,
+
+    "interesting_fact_interval" : 300,
     
     "edge_tts_voice" : "ru-RU-SvetlanaNeural",
     "reminder_sound" : "H_WARNING.mp3",
@@ -20,7 +22,7 @@
     "stream": false,
     "n_predict": 400,
     "temperature": 0.7,
-    "stop": ["</s>", "Ева:", "User:"],
+    "stop": ["</s>", "Ева:", "User:", "Eva:"],
     "repeat_last_n": 256,
     "repeat_penalty": 1.18,
     "penalize_nl": false,

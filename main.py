@@ -45,6 +45,8 @@ target_apps = config.get('target_apps', ["Visual Studio Code"])
 reminder_interval = config.get('reminder_interval', 30)
 # Время бездействия перед отправкой запроса к AI (punishment), в секундах
 punishment_interval = config.get('punishment_interval', 60)
+# Время интерестных фактов
+interesting_fact_interval = config.get('interesting_fact_interval', 60)
 # Голос edge_tts
 edge_tts_voice = config.get('edge_tts_voice', "ru-RU-SvetlanaNeural")
 # Загрузка промпта
@@ -53,6 +55,8 @@ ext_prompt = config.get('prompt', "You are helpfull assistant")
 punishment_subprompt = config.get('punishment_subprompt', "\n\nUser: Я отвлекся от своей работы в окне '{}' и переключился на '{}' без нужды.\nЕва:")
 # Загрузка сабпромпта для похвалы
 praise_subprompt = config.get('praise_subprompt', "\n\nUser: Я работал сфокусированно в окне '{}' без отвлечений целых '{}' секунд!\nЕва:")
+# Загрузка сабпромпта для фактов
+interesting_fact_subprompt = config.get('interesting_fact_subprompt', "\n\nUser: Расскажи мне бредовый факт\nЕва:")
 # Звук предупреждения
 reminder_sound = config.get('reminder_sound', 'H_WARNING.mp3')
 # Время без отвлечений перед похвалой, в секундах
@@ -66,6 +70,8 @@ start_focus_time = time.time()
 last_focus_time = time.time()
 # Время последнего бездействия
 last_active_time = time.time()
+# Время последнего факта
+last_interesting_fact = time.time()
 # Переменная для хранения последнего активного целевого окна
 last_target_window = None
 
@@ -155,6 +161,12 @@ async def generate_praise_message(active_window):
     prompt = ext_prompt + praise_subprompt.format(active_window, last_focus_time)
     await send_to_llama(prompt)
 
+async def generate_interesting_fact():
+    # Формируем prompt для запроса. Персонаж промпта выдуман и все совпадения случайны!
+    prompt = ext_prompt + interesting_fact_subprompt
+    await send_to_llama(prompt)
+
+
 async def send_to_llama(prompt):
     try:
         # Данные для POST-запроса
@@ -210,7 +222,7 @@ async def send_to_llama(prompt):
 status_focus = False
 status_unfocus = False
 async def main():
-    global last_active_time, last_target_window, last_focus_time, start_focus_time, status_focus, status_unfocus  # Объявляем переменные глобальными
+    global last_active_time, last_target_window, last_focus_time, start_focus_time, status_focus, status_unfocus, last_interesting_fact  # Объявляем переменные глобальными
     # Основной цикл отслеживания окон
     while True:
         try:
@@ -252,10 +264,16 @@ async def main():
                         await generate_praise_message(active_window)
                         last_focus_time = time.time()  # Сброс времени после похвалы
 
+
                     status_unfocus = False
                     if not status_focus and discord_presence_state:
                         discord.restart_rpc(1133456581988732970, "Time in full focus:", "Focus State", int(time.mktime(time.localtime(start_focus_time))), "cat")
                         status_focus = True
+                        
+                time_fact = time.time() - last_interesting_fact
+                if time_fact >= interesting_fact_interval:
+                    await generate_interesting_fact()
+                    last_interesting_fact = time.time()
 
             time.sleep(5)  # Интервал между проверками
 
