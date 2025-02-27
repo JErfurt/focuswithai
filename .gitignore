@@ -1,3 +1,5 @@
 .venv
 speaktest.py
 __pycache__
+run.bat
+config.json
