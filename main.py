@@ -17,6 +17,7 @@
 # ---------------------------------------------------------------
 
 import sys
+import signal
 
 if sys.platform == "darwin":
     from AppKit import NSWorkspace, NSApplicationActivateIgnoringOtherApps
@@ -279,10 +280,24 @@ session_stats = load_session_stats()
 
 status_focus = False
 status_unfocus = False
+
+# Флаг для корректного завершения
+shutdown_flag = False
+
+def signal_handler(signum, frame):
+    """Обработчик сигналов для корректного завершения"""
+    global shutdown_flag
+    log_message(1, "[INFO] Получен сигнал остановки. Завершаем работу...")
+    shutdown_flag = True
+
+# Регистрируем обработчики сигналов
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
 async def main():
-    global last_active_time, last_target_window, last_focus_time, start_focus_time, status_focus, status_unfocus, last_interesting_fact, last_session_time, session_index, session_stats  # Объявляем переменные глобальными
+    global last_active_time, last_target_window, last_focus_time, start_focus_time, status_focus, status_unfocus, last_interesting_fact, last_session_time, session_index, session_stats, shutdown_flag  # Объявляем переменные глобальными
     # Основной цикл отслеживания окон
-    while True:
+    while not shutdown_flag:
         try:
             current_sesion = session_reader.get_line_by_index(session_index)
             if(current_sesion == None):
@@ -324,7 +339,11 @@ async def main():
                 
             if(not current_sesion.focus):
                 log_message(2, f"[INFO] Отдых: {current_session_time} из {current_sesion.min} минут")
-                time.sleep(60)
+                # Проверяем флаг завершения каждую секунду
+                for _ in range(60):
+                    if shutdown_flag:
+                        break
+                    await asyncio.sleep(1)
                 continue
 
             # Отображаем прогресс текущей фокусной сессии
@@ -379,13 +398,18 @@ async def main():
                     await generate_interesting_fact()
                     last_interesting_fact = time.time()
 
-            time.sleep(5)  # Интервал между проверками
+            await asyncio.sleep(5)  # Интервал между проверками
 
         except Exception as e:
             log_message(1, f"[ERROR] Неожиданная ошибка: {e}")
-            time.sleep(5)
+            await asyncio.sleep(5)
+
+        if shutdown_flag:
+            break
+
+    log_message(1, "[INFO] Приложение завершено корректно.")
+    discord.stop_rpc()
 
 # Запуск программы
 if __name__ == "__main__":
     asyncio.run(main())
-    discord.stop_rpc()
