@@ -118,7 +118,7 @@ class GoogleAssistantClient(AIClient):
     
     def is_available(self) -> bool:
         """Проверяет доступность Google Assistant API"""
-        return bool(self.api_key and self.project_id)
+        return bool(self.api_key)
     
     async def generate_response(self, prompt: str) -> str:
         """Генерирует ответ через Google Assistant API"""
