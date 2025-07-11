@@ -1,65 +1,164 @@
-## STOP PROCRASTINATION
-### BE PRODUCTIVE!
+# STOP PROCRASTINATION  
+### BE PRODUCTIVE!  
 
-Python script to stay focus on applications for work.
-One timer alert you every 5 second to get back to work,
-second one uses AI to generate "Punishment" message
-third one pushes AI to generate "Praise" message.
+# Window Focus Reminder  
 
-***I was abandoned by one of my friends and no one can moral support me to work so I was trying enchanse my AI interface that was too much work, but one day I found out this solution and make it in one python script.*** 
+A script to track active windows and remind users to return to their work applications.  
 
-*Hope u'll well stay focus!*
+## Features  
 
-*JErfurt*
+- ✅ Active window tracking  
+- ✅ Sound reminders for distractions  
+- ✅ Voice notifications via Edge TTS  
+- ✅ AI integration for personalized messages  
+- ✅ Session system (focus/break)  
+- ✅ Discord Rich Presence  
+- ✅ Support for multiple AI providers (Llama, Google Assistant)  
 
-[YT video (old)](https://www.youtube.com/watch?v=AqjlrRfCPb8)
+## Supported AI Providers  
 
-## Installation
-Use Conda or Venv for reqs don't make mess with system. 
-As an AI backend I use llama.cpp server, please checkout [llama.cpp](https://github.com/ggerganov/llama.cpp) it's incredibly easy to use!
+### 1. Llama (Local)  
+To use a local Llama server:  
+```json  
+{  
+  "ai_provider": "llama",  
+  "llama_url": "http://127.0.0.1:8080/completion"  
+}  
+```  
 
-**Okay, I'll add simple step-by-step guide for windows**
+### 2. Google Assistant API  
+To use Google Assistant API:  
+```json  
+{  
+  "ai_provider": "google_assistant",  
+  "google_assistant_api_key": "YOUR_API_KEY",  
+  "google_project_id": "YOUR_PROJECT_ID"  
+}  
+```  
 
-Copy repository, unpack, open folder with CMD
+## Installation  
 
-Create virtual environment
-```
-python -m venv venv
-```
-Apply environment
-```
-venv\Scripts\activate
-```
-Install dependencies
-```
-pip install -r requirements.txt
-```
-Go to [llama.cpp/releases](https://github.com/ggerganov/llama.cpp/releases) and download "..cu.." if you have CUDA or avx2 if only CPU or other compatible for your system, ok?.
+1. Install dependencies:  
+```bash  
+pip install -r requirements.txt  
+```  
 
-Unpack llama.cpp release some where and you can start llama-server.exe with some params, but not that fast.
+2. Configure `config.json`:  
+   - Choose an AI provider (`ai_provider`)  
+   - Set parameters for the selected provider  
+   - Specify target applications in `target_apps`  
 
-Firstly find some llama .GGUF models on [HuggingFace](https://huggingface.co/) recomend llama-3B, I hope I don't need to explain about quantization in here, if you need it find it with your self.
+3. Create a session file `sessions.jsonl`:  
+```json  
+{"name": "Focus", "focus": true, "min": 25}  
+{"name": "Break", "focus": false, "min": 5}  
+{"name": "Focus", "focus": true, "min": 25}  
+```  
 
-Finally start server and then main.py
+## Usage  
 
-If have CUDA set --n-gpu-layers
-```
-llama-server.exe -m Models/NAME_OF_YOUR_MODEL.gguf --n-gpu-layers 29 --split-mode layer --main-gpu 0 --ctx-size 4096
-```
+Run the script:  
+```bash  
+python main.py  
+```  
 
-If CPU only
-```
-llama-server.exe -m Models/NAME_OF_YOUR_MODEL.gguf --ctx-size 4096
-```
+## Configuration  
 
-If you lose python virtual environment, let's get back to it
-```
-venv\Scripts\activate
-```
+### Main Parameters:  
+- `ai_provider`: AI provider selection (`llama` or `google_assistant`)  
+- `target_apps`: List of target applications  
+- `reminder_interval`: Time until reminder (seconds)  
+- `punishment_interval`: Time until AI "punishment" (seconds)  
+- `praise_interval`: Time for AI "praise" (seconds)  
 
-Run main.py
-```
-python main.py
-```
+### Llama Parameters:  
+- `llama_url`: Local Llama server URL  
+- `temperature`: Generation temperature  
+- `n_predict`: Maximum token count  
 
-### It's easy to init, anyway I did some explain
+### Google Assistant Parameters:  
+- `google_assistant_api_key`: Google API key  
+- `google_project_id`: Google project ID  
+- `google_max_tokens`: Maximum token count  
+
+## File Structure  
+
+```  
+workReminder/  
+├── main.py              # Main script  
+├── ai_client.py         # AI client module  
+├── config.json          # Configuration  
+├── sessions.jsonl       # Session file  
+├── session_stats.json   # Session statistics  
+├── requirements.txt     # Dependencies  
+└── README.MD           # Documentation  
+```  
+
+## License  
+
+MIT License  
+
+Python script to help maintain focus on work applications.  
+One timer alerts every 5 seconds to return to work,  
+another uses AI to generate "punishment" messages,  
+and a third prompts AI to generate "praise" messages.  
+
+***After being abandoned by a friend with no moral support for work, I enhanced my AI interface. This solution was eventually condensed into a single Python script.***  
+
+*Hope it helps you stay focused!*  
+
+*JErfurt*  
+
+[YT video (old)](https://www.youtube.com/watch?v=AqjlrRfCPb8)  
+
+## Installation  
+Use Conda or Venv to avoid system conflicts.  
+For the AI backend, llama.cpp server is recommended. Check out [llama.cpp](https://github.com/ggerganov/llama.cpp) – it's very user-friendly!  
+
+### Simplified Windows Guide  
+
+1. Clone/unpack the repository and open the folder in CMD.  
+2. Create a virtual environment:  
+```  
+python -m venv venv  
+```  
+3. Activate the environment:  
+```  
+venv\Scripts\activate  
+```  
+4. Install dependencies:  
+```  
+pip install -r requirements.txt  
+```  
+5. Download a compatible release from [llama.cpp/releases](https://github.com/ggerganov/llama.cpp/releases) (e.g., CUDA for GPU or AVX2 for CPU).  
+6. Unpack llama.cpp and place it in your preferred location.  
+7. Download a GGUF model from [HuggingFace](https://huggingface.co/) (e.g., llama-3B).  
+
+### Launching the Server  
+
+For CUDA (adjust GPU layers as needed):  
+```  
+llama-server.exe -m Models/YOUR_MODEL.gguf --n-gpu-layers 29 --split-mode layer --main-gpu 0 --ctx-size 4096  
+```  
+
+For CPU-only:  
+```  
+llama-server.exe -m Models/YOUR_MODEL.gguf --ctx-size 4096  
+```  
+
+### Running the Script  
+
+Reactivate the virtual environment if needed:  
+```  
+venv\Scripts\activate  
+```  
+
+Start the main script:  
+```  
+python main.py  
+```  
+
+### Quick Setup Summary  
+The process is straightforward. For additional details, refer to the documentation.  
+
+--------
