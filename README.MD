@@ -1,162 +1,164 @@
-## STOP PROCRASTINATION
-### BE PRODUCTIVE!
+# STOP PROCRASTINATION  
+### BE PRODUCTIVE!  
 
-# Window Focus Reminder
+# Window Focus Reminder  
 
-Скрипт для отслеживания активных окон и напоминания пользователю о необходимости вернуться к рабочему окну.
+A script to track active windows and remind users to return to their work applications.  
 
-## Возможности
+## Features  
 
-- ✅ Отслеживание активных окон
-- ✅ Звуковые напоминания при отвлечении
-- ✅ Голосовые уведомления через Edge TTS
-- ✅ Интеграция с AI для персонализированных сообщений
-- ✅ Система сессий (фокус/отдых)
-- ✅ Discord Rich Presence
-- ✅ Поддержка разных AI провайдеров (Llama, Google Assistant)
+- ✅ Active window tracking  
+- ✅ Sound reminders for distractions  
+- ✅ Voice notifications via Edge TTS  
+- ✅ AI integration for personalized messages  
+- ✅ Session system (focus/break)  
+- ✅ Discord Rich Presence  
+- ✅ Support for multiple AI providers (Llama, Google Assistant)  
 
-## Поддерживаемые AI провайдеры
+## Supported AI Providers  
 
-### 1. Llama (локальный)
-Для использования локального Llama сервера:
-```json
-{
-  "ai_provider": "llama",
-  "llama_url": "http://127.0.0.1:8080/completion"
-}
-```
+### 1. Llama (Local)  
+To use a local Llama server:  
+```json  
+{  
+  "ai_provider": "llama",  
+  "llama_url": "http://127.0.0.1:8080/completion"  
+}  
+```  
 
-### 2. Google Assistant API
-Для использования Google Assistant API:
-```json
-{
-  "ai_provider": "google_assistant",
-  "google_assistant_api_key": "YOUR_API_KEY",
-  "google_project_id": "YOUR_PROJECT_ID"
-}
-```
+### 2. Google Assistant API  
+To use Google Assistant API:  
+```json  
+{  
+  "ai_provider": "google_assistant",  
+  "google_assistant_api_key": "YOUR_API_KEY",  
+  "google_project_id": "YOUR_PROJECT_ID"  
+}  
+```  
 
-## Установка
+## Installation  
 
-1. Установите зависимости:
-```bash
-pip install -r requirements.txt
-```
+1. Install dependencies:  
+```bash  
+pip install -r requirements.txt  
+```  
 
-2. Настройте `config.json`:
-   - Выберите AI провайдера (`ai_provider`)
-   - Настройте параметры для выбранного провайдера
-   - Укажите целевые приложения в `target_apps`
+2. Configure `config.json`:  
+   - Choose an AI provider (`ai_provider`)  
+   - Set parameters for the selected provider  
+   - Specify target applications in `target_apps`  
 
-3. Создайте файл сессий `sessions.jsonl`:
-```json
-{"name": "Фокус", "focus": true, "min": 25}
-{"name": "Отдых", "focus": false, "min": 5}
-{"name": "Фокус", "focus": true, "min": 25}
-```
+3. Create a session file `sessions.jsonl`:  
+```json  
+{"name": "Focus", "focus": true, "min": 25}  
+{"name": "Break", "focus": false, "min": 5}  
+{"name": "Focus", "focus": true, "min": 25}  
+```  
 
-## Использование
+## Usage  
 
-Запустите скрипт:
-```bash
-python main.py
-```
+Run the script:  
+```bash  
+python main.py  
+```  
 
-## Конфигурация
+## Configuration  
 
-### Основные параметры:
-- `ai_provider`: Выбор AI провайдера (`llama` или `google_assistant`)
-- `target_apps`: Список целевых приложений
-- `reminder_interval`: Время до напоминания (секунды)
-- `punishment_interval`: Время до AI-наказания (секунды)
-- `praise_interval`: Время для похвалы (секунды)
+### Main Parameters:  
+- `ai_provider`: AI provider selection (`llama` or `google_assistant`)  
+- `target_apps`: List of target applications  
+- `reminder_interval`: Time until reminder (seconds)  
+- `punishment_interval`: Time until AI "punishment" (seconds)  
+- `praise_interval`: Time for AI "praise" (seconds)  
 
-### Параметры Llama:
-- `llama_url`: URL локального Llama сервера
-- `temperature`: Температура генерации
-- `n_predict`: Максимальное количество токенов
+### Llama Parameters:  
+- `llama_url`: Local Llama server URL  
+- `temperature`: Generation temperature  
+- `n_predict`: Maximum token count  
 
-### Параметры Google Assistant:
-- `google_assistant_api_key`: API ключ Google
-- `google_project_id`: ID проекта Google
-- `google_max_tokens`: Максимальное количество токенов
+### Google Assistant Parameters:  
+- `google_assistant_api_key`: Google API key  
+- `google_project_id`: Google project ID  
+- `google_max_tokens`: Maximum token count  
 
-## Структура файлов
+## File Structure  
 
-```
-workReminder/
-├── main.py              # Основной скрипт
-├── ai_client.py         # Модуль AI клиентов
-├── config.json          # Конфигурация
-├── sessions.jsonl       # Файл сессий
-├── session_stats.json   # Статистика сессий
-├── requirements.txt     # Зависимости
-└── README.MD           # Документация
-```
+```  
+workReminder/  
+├── main.py              # Main script  
+├── ai_client.py         # AI client module  
+├── config.json          # Configuration  
+├── sessions.jsonl       # Session file  
+├── session_stats.json   # Session statistics  
+├── requirements.txt     # Dependencies  
+└── README.MD           # Documentation  
+```  
 
-## Лицензия
+## License  
 
-MIT License
+MIT License  
 
-Python script to stay focus on applications for work.
-One timer alert you every 5 second to get back to work,
-second one uses AI to generate "Punishment" message
-third one pushes AI to generate "Praise" message.
+Python script to help maintain focus on work applications.  
+One timer alerts every 5 seconds to return to work,  
+another uses AI to generate "punishment" messages,  
+and a third prompts AI to generate "praise" messages.  
 
-***I was abandoned by one of my friends and no one can moral support me to work so I was trying enchanse my AI interface that was too much work, but one day I found out this solution and make it in one python script.*** 
+***After being abandoned by a friend with no moral support for work, I enhanced my AI interface. This solution was eventually condensed into a single Python script.***  
 
-*Hope u'll well stay focus!*
+*Hope it helps you stay focused!*  
 
-*JErfurt*
+*JErfurt*  
 
-[YT video (old)](https://www.youtube.com/watch?v=AqjlrRfCPb8)
+[YT video (old)](https://www.youtube.com/watch?v=AqjlrRfCPb8)  
 
-## Installation
-Use Conda or Venv for reqs don't make mess with system. 
-As an AI backend I use llama.cpp server, please checkout [llama.cpp](https://github.com/ggerganov/llama.cpp) it's incredibly easy to use!
+## Installation  
+Use Conda or Venv to avoid system conflicts.  
+For the AI backend, llama.cpp server is recommended. Check out [llama.cpp](https://github.com/ggerganov/llama.cpp) – it's very user-friendly!  
 
-**Okay, I'll add simple step-by-step guide for windows**
+### Simplified Windows Guide  
 
-Copy repository, unpack, open folder with CMD
+1. Clone/unpack the repository and open the folder in CMD.  
+2. Create a virtual environment:  
+```  
+python -m venv venv  
+```  
+3. Activate the environment:  
+```  
+venv\Scripts\activate  
+```  
+4. Install dependencies:  
+```  
+pip install -r requirements.txt  
+```  
+5. Download a compatible release from [llama.cpp/releases](https://github.com/ggerganov/llama.cpp/releases) (e.g., CUDA for GPU or AVX2 for CPU).  
+6. Unpack llama.cpp and place it in your preferred location.  
+7. Download a GGUF model from [HuggingFace](https://huggingface.co/) (e.g., llama-3B).  
 
-Create virtual environment
-```
-python -m venv venv
-```
-Apply environment
-```
-venv\Scripts\activate
-```
-Install dependencies
-```
-pip install -r requirements.txt
-```
-Go to [llama.cpp/releases](https://github.com/ggerganov/llama.cpp/releases) and download "..cu.." if you have CUDA or avx2 if only CPU or other compatible for your system, ok?.
+### Launching the Server  
 
-Unpack llama.cpp release some where and you can start llama-server.exe with some params, but not that fast.
+For CUDA (adjust GPU layers as needed):  
+```  
+llama-server.exe -m Models/YOUR_MODEL.gguf --n-gpu-layers 29 --split-mode layer --main-gpu 0 --ctx-size 4096  
+```  
 
-Firstly find some llama .GGUF models on [HuggingFace](https://huggingface.co/) recomend llama-3B, I hope I don't need to explain about quantization in here, if you need it find it with your self.
+For CPU-only:  
+```  
+llama-server.exe -m Models/YOUR_MODEL.gguf --ctx-size 4096  
+```  
 
-Finally start server and then main.py
+### Running the Script  
 
-If have CUDA set --n-gpu-layers
-```
-llama-server.exe -m Models/NAME_OF_YOUR_MODEL.gguf --n-gpu-layers 29 --split-mode layer --main-gpu 0 --ctx-size 4096
-```
+Reactivate the virtual environment if needed:  
+```  
+venv\Scripts\activate  
+```  
 
-If CPU only
-```
-llama-server.exe -m Models/NAME_OF_YOUR_MODEL.gguf --ctx-size 4096
-```
+Start the main script:  
+```  
+python main.py  
+```  
 
-If you lose python virtual environment, let's get back to it
-```
-venv\Scripts\activate
-```
+### Quick Setup Summary  
+The process is straightforward. For additional details, refer to the documentation.  
 
-Run main.py
-```
-python main.py
-```
-
-### It's easy to init, anyway I did some explain
+--------
