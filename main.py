@@ -213,8 +213,9 @@ async def send_to_ai(prompt):
         ai_response = await ai_client.generate_response(prompt)
         log_message(2, f"[AI RESPONSE] {ai_response}")
 
-        # Озвучиваем текст
-        await speak_text(ai_response, edge_tts_voice)
+        if(ai_response != ""):
+            # Озвучиваем текст
+            await speak_text(ai_response, edge_tts_voice)
         
     except Exception as e:
         log_message(1, f"[ERROR] Ошибка при запросе к AI: {e}")
