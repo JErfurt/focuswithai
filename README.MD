@@ -17,6 +17,7 @@ A script to track active windows and remind users to return to their work applic
 - ✅ Context-aware AI: time of day, current session, distraction statistics
 - ✅ Dialogue memory: the assistant remembers recent replies and does not repeat facts
 - ✅ Async requests with timeouts and retries, TTS-safe output cleanup, offline fallback phrases
+- ✅ Local web panel: all settings, schedule and assistant memory in the browser instead of editing files
 
 ## Supported AI Providers
 
@@ -84,6 +85,35 @@ Run the script:
 ```bash  
 python main.py  
 ```  
+
+## Web panel
+
+While `main.py` runs, the panel is at **http://127.0.0.1:8765/** (the address is printed at startup).
+It listens on localhost only.
+
+- **Today**: current block with a timer, pause, skip, +5 minutes, the active window, today's focus time
+  and distractions, the event log. Sound, assistant replies and Discord can be muted until restart.
+- **Schedule**: edit `sessions.jsonl` (drag to reorder, presets). Saved changes apply immediately.
+- **Focus rules, Character and replies, Model, Voice**: every `config.json` setting with defaults filled in.
+  Edits from all sections collect into one draft; changed fields are highlighted until you save (Ctrl+S).
+  You can test a reply, the AI connection, a voice and the reminder sound with unsaved settings.
+- **Assistant memory**: view and delete events, recent replies and told facts, reset statistics.
+- **Discord and debug**: restart or stop the tracker, log level and live logs.
+- **config.json manually**: raw editor for `config.json` and `sessions.jsonl`, keys the program
+  does not read, backups, export/import.
+
+Most settings are read at startup, so after saving press **Restart**: the tracker restarts itself
+(`start.bat` and llama-server keep running) and continues the current block where it was.
+Every save of `config.json` first copies the old file to `backups/` (last 10 are kept).
+API keys are never sent to the browser: the panel shows a mask and keeps the stored key unless you type a new one.
+
+To edit settings without starting the tracker:
+```bash
+python panel.py
+```
+
+Panel settings in `config.json`: `panel_enabled` (default `true`), `panel_port` (default `8765`),
+`panel_open_browser` (open the panel on startup, default `false`).
 
 ## Configuration  
 
@@ -190,6 +220,8 @@ workReminder/
 ├── main.py              # Main script  
 ├── ai_client.py         # AI providers (llama.cpp, OpenAI-compatible, Gemini)  
 ├── assistant.py         # Prompts, context, dialogue memory, TTS cleanup  
+├── panel.py             # Local web panel server  
+├── panel_web/           # Web panel page, styles and script  
 ├── config.json          # Configuration  
 ├── sessions.jsonl       # Session file  
 ├── session_stats.json   # Session statistics  

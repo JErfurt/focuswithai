@@ -253,6 +253,35 @@ class FocusAssistant:
         except Exception as e:
             logging.warning(f"[AI] Не удалось сохранить память: {e}")
 
+    def memory_snapshot(self) -> Dict[str, Any]:
+        return {
+            'date': time.strftime('%Y-%m-%d'),
+            'history': list(self.history),
+            'events': [list(e) for e in self.events],
+            'recent_replies': list(self.recent_replies),
+            'recent_facts': list(self.recent_facts),
+            'distractions': dict(self.distractions),
+        }
+
+    def forget(self, kind: str, index: int):
+        """Удаляет одну запись памяти (из веб-панели)"""
+        store = {'events': self.events, 'recent_replies': self.recent_replies,
+                 'recent_facts': self.recent_facts}[kind]
+        items = list(store)
+        del items[index]
+        store.clear()
+        store.extend(items)
+        self._save_memory()
+
+    def clear_memory(self, scope: str):
+        """scope='today': всё, кроме фактов; scope='facts': только факты"""
+        if scope == 'facts':
+            self.recent_facts.clear()
+        else:
+            for store in (self.history, self.events, self.recent_replies, self.distractions):
+                store.clear()
+        self._save_memory()
+
     # ---------- контекст ----------
 
     def set_session(self, name: str, elapsed_min: int, total_min: int, focus: bool):
@@ -340,7 +369,8 @@ class FocusAssistant:
     async def fact(self):
         await self._handle("fact", {}, (), "рассказан факт")
 
-    async def _handle(self, event: str, values: Dict[str, Any], legacy_args: tuple, log_text: str):
+    def _instruction(self, event: str, values: Dict[str, Any], legacy_args: tuple) -> Tuple[str, Optional[str]]:
+        """Задание для модели: шаблон события, тема факта и случайная подсказка стиля"""
         template = self.templates[event]
         try:
             if self.legacy[event]:
@@ -360,13 +390,23 @@ class FocusAssistant:
             if self.recent_facts:
                 told = "; ".join(self.recent_facts)
                 instruction += f"\nНе повторяй уже рассказанные факты: {told}"
+        style = None
         styles = [s for s in self.styles.get(event, []) if s != self.last_style.get(event)]
         if styles:
             style = random.choice(styles)
             self.last_style[event] = style
             instruction += f" {style}"
         instruction += INSTRUCTION_SUFFIX
+        return instruction, style
 
+    async def preview(self, event: str, values: Dict[str, Any], legacy_args: tuple = ()) -> Dict[str, Any]:
+        """Пробная реплика для веб-панели: без озвучки и без записи в память"""
+        instruction, style = self._instruction(event, values, legacy_args)
+        text = await self._ask(instruction, event)
+        return {"text": text, "style": style, "instruction": instruction}
+
+    async def _handle(self, event: str, values: Dict[str, Any], legacy_args: tuple, log_text: str):
+        instruction, _ = self._instruction(event, values, legacy_args)
         text = await self._ask(instruction, event)
 
         # Защита от повторов: один переспрос, потом запасная фраза
