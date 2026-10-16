@@ -38,6 +38,18 @@ class AIError(Exception):
     """Ошибка генерации ответа"""
 
 
+# llama.cpp: exceed_context_size_error, OpenAI: context_length_exceeded,
+# Ollama/vLLM/прочие: "maximum context length", "too many tokens"
+CONTEXT_OVERFLOW_RE = re.compile(
+    r"exceed\w*_context|context_length_exceeded|context (size|length|window)|"
+    r"maximum context|too many tokens|prompt is too long", re.I)
+
+
+def is_context_overflow(error: Exception) -> bool:
+    """Ошибка из-за того, что промпт не влез в окно контекста модели"""
+    return bool(CONTEXT_OVERFLOW_RE.search(str(error)))
+
+
 class AIClient(ABC):
     """Абстрактный класс для AI клиентов"""
 

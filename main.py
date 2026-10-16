@@ -27,8 +27,7 @@ elif sys.platform == "win32":
 
 import time
 import pygame
-import edge_tts
-from io import BytesIO
+from tts import Speaker
 import asyncio
 import json
 from dataclasses import dataclass
@@ -38,12 +37,20 @@ from ai_client import AIClientFactory
 from assistant import FocusAssistant
 
 
-# Инициализация звука
-pygame.mixer.init()
-
 # Открываем и читаем файл config.json
 with open('config.json', 'r', encoding="UTF-8") as config_file:
     config = json.load(config_file)
+
+# Инициализация звука. Дефолтный буфер pygame (512 сэмплов, ~11 мс) на Windows
+# даёт потрескивание, а 48 кГц совпадает с частотой большинства устройств,
+# поэтому системе не приходится пересэмплировать звук ещё раз.
+pygame.mixer.pre_init(
+    frequency=config.get('audio_frequency', 48000),
+    size=-16,
+    channels=2,
+    buffer=config.get('audio_buffer', 2048),
+)
+pygame.mixer.init()
 
 # Инициализация AI клиента
 ai_client = AIClientFactory.create_client(config)
@@ -56,8 +63,6 @@ reminder_interval = config.get('reminder_interval', 30)
 punishment_interval = config.get('punishment_interval', 60)
 # Время интерестных фактов
 interesting_fact_interval = config.get('interesting_fact_interval', 60)
-# Голос edge_tts
-edge_tts_voice = config.get('edge_tts_voice', "ru-RU-SvetlanaNeural")
 # Минимальная пауза между AI-наказаниями, в секундах
 punishment_cooldown = config.get('punishment_cooldown', punishment_interval)
 # Звук предупреждения
@@ -106,6 +111,7 @@ logging.basicConfig(
     format="[%(levelname)s] %(message)s",
 )
 logging.getLogger("asyncio").setLevel(logging.WARNING)
+logging.getLogger("comtypes").setLevel(logging.WARNING)
 
 # Функция для проверки текущего активного окна
 def get_active_window_title():
@@ -119,11 +125,20 @@ def get_active_window_title():
             return window.title
     raise Exception("Unsupported platform")
 
+# Звук напоминания декодируется один раз и играет на своём канале:
+# не пересэмплируется на лету и не обрывает речь ассистента
+_reminder = {"sound": None, "channel": None}
+
 # Функция для воспроизведения аудио файла
 def play_reminder_sound():
     try:
-        pygame.mixer.music.load(reminder_sound)
-        pygame.mixer.music.play()
+        if _reminder["sound"] is None:
+            _reminder["sound"] = pygame.mixer.Sound(reminder_sound)
+            _reminder["sound"].set_volume(config.get('reminder_volume', 1.0))
+        channel = _reminder["channel"]
+        if channel is not None and channel.get_busy():
+            return  # прошлое напоминание ещё звучит, не перезапускаем
+        _reminder["channel"] = _reminder["sound"].play()
         log_message(2, "[INFO] Напоминание: Воспроизведение звука.")
     except Exception as e:
         log_message(1, f"[ERROR] Ошибка при воспроизведении звука: {e}")
@@ -159,32 +174,14 @@ def switch_back_to_last_target():
     else:
         log_message(2, "[INFO] Последнее целевое окно не найдено. Невозможно переключиться.")
 
-# Функция для озвучивания текста
-async def speak_text(text, voice):
-    try:
-        # Используем edge-tts для генерации аудио
-        tts = edge_tts.Communicate(text, voice=voice)
+# Озвучивание: цепочка движков edge -> piper -> sapi (см. tts.py)
+speaker = Speaker(config)
 
-        # Получаем аудио в формате MP3 через асинхронный генератор
-        audio = BytesIO()
-        async for chunk in tts.stream():
-            if chunk["type"] == "audio":
-                audio.write(chunk["data"])
-
-        # Перематываем поток в начало
-        audio.seek(0)
-
-        pygame.mixer.music.load(audio)
-        pygame.mixer.music.play()
-
-        # Ожидание завершения воспроизведения без блокировки цикла событий
-        while pygame.mixer.music.get_busy():
-            await asyncio.sleep(0.1)
-    except Exception as e:
-        log_message(1, f"[ERROR] Ошибка озвучивания: {e}")
+async def speak_text(text):
+    await speaker.speak(text)
 
 # AI ассистент: промпты, контекст, память диалога и озвучивание ответов
-assistant = FocusAssistant(ai_client, config, lambda text: speak_text(text, edge_tts_voice))
+assistant = FocusAssistant(ai_client, config, speak_text)
 
 @dataclass
 class MyData:
@@ -289,13 +286,15 @@ async def main():
                 if current_sesion.focus:
                     session_stats["total_focus_time"] += current_sesion.min
                     log_message(1, f"[INFO] Фокусная сессия завершена: {current_sesion.min} минут")
+                    assistant.log_event(f"завершена фокус-сессия на {current_sesion.min} мин")
                     # Можно добавить уведомление о завершении фокусной сессии
-                    await speak_text(f"Отличная работа! Фокусная сессия на {current_sesion.min} минут завершена.", edge_tts_voice)
+                    await speak_text(f"Отличная работа! Фокусная сессия на {current_sesion.min} минут завершена.")
                 else:
                     session_stats["total_break_time"] += current_sesion.min
                     log_message(1, f"[INFO] Сессия отдыха завершена: {current_sesion.min} минут")
+                    assistant.log_event(f"закончился отдых {current_sesion.min} мин, снова работа")
                     # Можно добавить уведомление о завершении отдыха
-                    await speak_text(f"Отдых завершен. Возвращаемся к работе!", edge_tts_voice)
+                    await speak_text(f"Отдых завершен. Возвращаемся к работе!")
                 
                 # Сохраняем статистику
                 save_session_stats()

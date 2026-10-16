@@ -5,3 +5,6 @@ run.bat
 config.json
 sessions.jsonl
 session_stats.json
+assistant_memory.json
+assistant_memory.json.tmp
+voices/

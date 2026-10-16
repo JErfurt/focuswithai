@@ -103,7 +103,20 @@ python main.py
   `{target}`, `{distraction}`, `{distracted_seconds}`, `{count}`, `{minutes}`, `{seconds}`.
   Old `*_subprompt` keys still work.
 - `ai_response_rules`: extra rules added to the system prompt (short replies, no emoji, etc.)
-- `ai_history_size`: how many recent messages to keep as dialogue memory (default 10, 0 = off)
+- `ai_history_size`: how many recent messages to send as dialogue history (default 0 = off).
+  Small local models copy their own previous replies from history, so keep it 0 for them;
+  for large models (Gemini, GPT) 6–10 can make replies more coherent
+- `ai_event_log_size`: how many recent events (distractions, praise, facts, finished sessions)
+  the model sees as a compact timestamped log (default 8). Gives continuity without copying
+- `ai_style_hints`: `{"punishment": [...], "praise": [...]}` random style hint added to each request
+  (e.g. "joke about it", "be strict"), never the same twice in a row
+- `ai_fact_topics`: list of fact topics; a random one is picked, excluding recent ones
+- `ai_repeat_threshold`: similarity (0..1, default 0.6) above which a reply counts as a repeat.
+  A repeat is re-asked once with a hint, then replaced with a fallback phrase
+- `ai_context_budget`: max prompt size in tokens (default 1500). Oldest history and events are
+  dropped to fit. If the server still reports a context overflow, the budget is halved automatically
+- `ai_memory_file`: where history, event log, recent replies and facts are saved (default
+  `assistant_memory.json`, `null` = off). Facts are kept across days, the rest only for the current day
 - `ai_max_chars`: max reply length passed to TTS (default 400)
 - `ai_max_sentences`: hard limit of sentences in a reply (default 2, 0 = off). Small models ignore "be brief"
 - `ai_drop_questions`: remove trailing questions from replies (default true), the user can't answer by voice
@@ -135,6 +148,27 @@ empty reply. With `openai_thinking: false` the client sends `chat_template_kwarg
 open `<think>`, e.g. LFM2.5).
 
 Tip: do not put example phrases into prompts and rules. Small models copy them into every reply.
+
+### Text-to-speech:
+Replies are spoken by the first working engine in the chain. If an engine fails, the next one
+speaks, and the failed one is skipped for `tts_failure_cooldown` seconds (default 600), then retried.
+- `tts_engines`: chain order (default `["edge", "piper", "sapi"]`)
+- `edge`: Microsoft Edge online voices, best quality. Unofficial API: if it starts failing with
+  `403`, update the package: `pip install -U edge-tts`.
+  `edge_tts_voice` (default `ru-RU-SvetlanaNeural`, also `ru-RU-DmitryNeural`), `edge_tts_rate` (e.g. `"+10%"`)
+- `piper`: offline [Piper](https://github.com/rhasspy/piper) voices, good quality, ~0.7 s per phrase on CPU.
+  `piper_model` (default `voices/ru_RU-irina-medium.onnx`, downloaded by `start.bat`),
+  `piper_length_scale` (>1 slower, <1 faster). Other Russian voices: `denis`, `dmitri`, `ruslan` from
+  [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices/tree/main/ru/ru_RU)
+- `sapi`: built-in Windows voices, offline, nothing to install. `sapi_voice` (default `Irina`), `sapi_rate` (-10..10)
+
+### Audio output:
+- `audio_frequency`: mixer sample rate (default 48000, matches most Windows devices)
+- `audio_buffer`: mixer buffer in samples (default 2048). If you still hear crackling, try 4096
+- `reminder_volume`: warning sound volume 0..1 (default 1.0)
+
+The warning sound and speech are decoded once into memory and play on separate channels,
+so the warning does not cut off speech.
 
 ### Gemini Parameters:
 - `google_assistant_api_key`: API key (sent in a header, not in the URL)
