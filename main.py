@@ -258,6 +258,8 @@ signal.signal(signal.SIGTERM, signal_handler)
 
 async def main():
     global last_active_time, last_target_window, last_focus_time, start_focus_time, status_focus, status_unfocus, last_interesting_fact, last_session_time, session_index, session_stats, shutdown_flag, last_punishment_time  # Объявляем переменные глобальными
+    # Модели офлайн-озвучки грузятся в фоне, пока проверяются AI провайдеры
+    tts_warmup = asyncio.create_task(speaker.warmup())
     available_providers = await AIClientFactory.get_available_providers(config)
     log_message(1, f"[INFO] Доступные AI провайдеры: {available_providers}")
     # Основной цикл отслеживания окон

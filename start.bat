@@ -28,6 +28,21 @@ if not exist ".venv\Scripts\python.exe" (
     ".venv\Scripts\python.exe" -m pip install -r requirements.txt
 )
 
+rem --- Silero: основной офлайн-голос. Нужен PyTorch, ставим CPU-сборку (~500 МБ),
+rem --- а не CUDA (~2.5 ГБ): видеокарта остаётся под LLM, а на CPU Silero и так быстрый
+if not exist ".venv\Lib\site-packages\torch" (
+    echo [setup] Устанавливаю PyTorch для CPU, ~200 МБ загрузки ...
+    ".venv\Scripts\python.exe" -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+)
+if not exist "voices\silero_v5_6_ru.pt" (
+    echo [setup] Скачиваю модель Silero v5_6_ru, ~150 МБ ...
+    if not exist voices mkdir voices
+    curl -L --fail -o "voices\silero_v5_6_ru.pt" "https://models.silero.ai/models/tts/ru/v5_6_ru.pt" || (
+        del "voices\silero_v5_6_ru.pt" 2>nul
+        echo [setup] Не удалось скачать Silero, будут использованы другие голоса
+    )
+)
+
 rem --- Офлайн-голос Piper (резерв, когда онлайн-озвучка Edge недоступна) ---
 set "PIPER_URL=https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium"
 if not exist "voices\ru_RU-irina-medium.onnx" (

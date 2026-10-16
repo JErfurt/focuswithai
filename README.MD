@@ -152,7 +152,14 @@ Tip: do not put example phrases into prompts and rules. Small models copy them i
 ### Text-to-speech:
 Replies are spoken by the first working engine in the chain. If an engine fails, the next one
 speaks, and the failed one is skipped for `tts_failure_cooldown` seconds (default 600), then retried.
-- `tts_engines`: chain order (default `["edge", "piper", "sapi"]`)
+- `tts_engines`: chain order (default `["silero", "edge", "piper", "sapi"]`)
+- `silero`: offline [Silero](https://github.com/snakers4/silero-models) voices on CPU, natural Russian
+  with auto-stress, ~0.1 s per phrase, ~600 MB RAM. Needs PyTorch (CPU build, installed by `start.bat`:
+  `pip install torch --index-url https://download.pytorch.org/whl/cpu`) and the model
+  `voices/silero_v5_6_ru.pt` (downloaded by `start.bat`). Model license: CC BY-NC 4.0 (non-commercial).
+  `silero_speaker`: `xenia` (default), `baya`, `kseniya`, `aidar`, `eugene`;
+  `silero_rate`: `x-slow`..`x-fast`, `silero_pitch`: `x-low`..`x-high` (SSML prosody);
+  `silero_sample_rate` (default 48000), `silero_threads` (default 8)
 - `edge`: Microsoft Edge online voices, best quality. Unofficial API: if it starts failing with
   `403`, update the package: `pip install -U edge-tts`.
   `edge_tts_voice` (default `ru-RU-SvetlanaNeural`, also `ru-RU-DmitryNeural`), `edge_tts_rate` (e.g. `"+10%"`)
