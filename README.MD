@@ -13,28 +13,51 @@ A script to track active windows and remind users to return to their work applic
 - ✅ AI integration for personalized messages  
 - ✅ Session system (focus/break)  
 - ✅ Discord Rich Presence  
-- ✅ Support for multiple AI providers (Llama, Google Assistant)  
+- ✅ Support for multiple AI providers (llama.cpp, any OpenAI-compatible API, Gemini) with fallback chain
+- ✅ Context-aware AI: time of day, current session, distraction statistics
+- ✅ Dialogue memory: the assistant remembers recent replies and does not repeat facts
+- ✅ Async requests with timeouts and retries, TTS-safe output cleanup, offline fallback phrases
 
-## Supported AI Providers  
+## Supported AI Providers
 
-### 1. Llama (Local)  
-To use a local Llama server:  
-```json  
-{  
-  "ai_provider": "llama",  
-  "llama_url": "http://127.0.0.1:8080/completion"  
-}  
-```  
+### 1. llama.cpp (`/completion`, raw prompt)
+```json
+{
+  "ai_provider": "llama",
+  "llama_url": "http://127.0.0.1:8080/completion"
+}
+```
 
-### 2. Google Assistant API  
-To use Google Assistant API:  
-```json  
-{  
-  "ai_provider": "google_assistant",  
-  "google_assistant_api_key": "YOUR_API_KEY",  
-  "google_project_id": "YOUR_PROJECT_ID"  
-}  
-```  
+### 2. OpenAI-compatible Chat API (recommended for local models)
+Works with llama.cpp (`/v1`), Ollama, LM Studio, vLLM, OpenAI, OpenRouter.
+The server applies the model's own chat template, which usually gives better answers than `/completion`.
+```json
+{
+  "ai_provider": "openai",
+  "openai_base_url": "http://127.0.0.1:8080/v1",
+  "openai_model": "local-model",
+  "openai_api_key": ""
+}
+```
+Ollama: `"openai_base_url": "http://127.0.0.1:11434/v1"`, `"openai_model": "qwen2.5:7b"`.
+
+### 3. Google Gemini
+```json
+{
+  "ai_provider": "google_assistant",
+  "google_assistant_api_key": "YOUR_API_KEY",
+  "google_model": "gemini-2.5-flash"
+}
+```
+
+### Fallback chain
+If the main provider fails, the next one is tried. If all fail, a built-in phrase is spoken.
+```json
+{
+  "ai_provider": "llama",
+  "ai_fallback_providers": ["google_assistant"]
+}
+```
 
 ## Installation  
 
@@ -64,29 +87,68 @@ python main.py
 
 ## Configuration  
 
-### Main Parameters:  
-- `ai_provider`: AI provider selection (`llama` or `google_assistant`)  
-- `target_apps`: List of target applications  
-- `reminder_interval`: Time until reminder (seconds)  
-- `punishment_interval`: Time until AI "punishment" (seconds)  
-- `praise_interval`: Time for AI "praise" (seconds)  
+### Main Parameters:
+- `ai_provider`: `llama`, `openai` or `google_assistant` (alias `gemini`)
+- `ai_fallback_providers`: list of backup providers
+- `target_apps`: List of target applications
+- `reminder_interval`: Time until reminder (seconds)
+- `punishment_interval`: Time until AI "punishment" (seconds)
+- `punishment_cooldown`: Minimum pause between AI punishments (seconds, default = `punishment_interval`)
+- `praise_interval`: Time for AI "praise" (seconds)
 
-### Llama Parameters:  
-- `llama_url`: Local Llama server URL  
-- `temperature`: Generation temperature  
-- `n_predict`: Maximum token count  
+### AI behaviour:
+- `prompt`: persona / system prompt
+- `assistant_name`: persona name (by default taken from the old `punishment_subprompt`, else `Ева`)
+- `punishment_instruction`, `praise_instruction`, `fact_instruction`: event prompts with placeholders
+  `{target}`, `{distraction}`, `{distracted_seconds}`, `{count}`, `{minutes}`, `{seconds}`.
+  Old `*_subprompt` keys still work.
+- `ai_response_rules`: extra rules added to the system prompt (short replies, no emoji, etc.)
+- `ai_history_size`: how many recent messages to keep as dialogue memory (default 10, 0 = off)
+- `ai_max_chars`: max reply length passed to TTS (default 400)
+- `ai_max_sentences`: hard limit of sentences in a reply (default 2, 0 = off). Small models ignore "be brief"
+- `ai_drop_questions`: remove trailing questions from replies (default true), the user can't answer by voice
+- `fallback_phrases`: `{"punishment": [...], "praise": [...], "fact": [...]}` spoken when AI is unavailable
+- `ai_timeout`, `ai_retries`: request timeout (s) and retry count (default 30 and 2)
 
-### Google Assistant Parameters:  
-- `google_assistant_api_key`: Google API key  
-- `google_project_id`: Google project ID  
-- `google_max_tokens`: Maximum token count  
+### llama.cpp Parameters:
+- `llama_url`: `/completion` endpoint URL
+- `llama_user_label`: speaker label for events in the transcript (default `System`)
+- `api_key`: sent as `Authorization: Bearer`
+- `temperature`, `n_predict`, `top_k`, `top_p`, `min_p`, `stop`, ...: sampling parameters
+
+### OpenAI-compatible Parameters:
+- `openai_base_url`, `openai_model`, `openai_api_key`
+- `openai_max_tokens`: reply token limit (default 300)
+- `openai_temperature`, `openai_top_k`, `openai_top_p`, `openai_min_p`, `openai_presence_penalty`,
+  `openai_frequency_penalty`, `openai_repeat_penalty`: sent **only if set**
+- `openai_thinking`: allow reasoning (default `false`)
+- `openai_extra_params`: any extra request fields (applied last, override everything)
+
+Like the llama.cpp web UI, the client does not send sampling parameters by default.
+The server then uses its launch flags and the recommended values the model authors put
+into the GGUF metadata (e.g. LFM2.5 ships temperature 0.1 and top_k 50). Overriding them with
+generic values usually makes small models worse.
+
+Reasoning models (LFM2.5, Qwen3, ...) can spend the whole token limit on thinking and return an
+empty reply. With `openai_thinking: false` the client sends `chat_template_kwargs.enable_thinking=false`
+(Qwen-style templates, same as the web UI) and `thinking_budget_tokens=0` (templates that always
+open `<think>`, e.g. LFM2.5).
+
+Tip: do not put example phrases into prompts and rules. Small models copy them into every reply.
+
+### Gemini Parameters:
+- `google_assistant_api_key`: API key (sent in a header, not in the URL)
+- `google_model`: model name (default `gemini-2.5-flash`)
+- `google_max_tokens`, `google_temperature`, `google_top_p`, `google_top_k`
+- `google_thinking_budget`: thinking token budget (0 by default for 2.5-flash so short replies are not cut off)
 
 ## File Structure  
 
 ```  
 workReminder/  
 ├── main.py              # Main script  
-├── ai_client.py         # AI client module  
+├── ai_client.py         # AI providers (llama.cpp, OpenAI-compatible, Gemini)  
+├── assistant.py         # Prompts, context, dialogue memory, TTS cleanup  
 ├── config.json          # Configuration  
 ├── sessions.jsonl       # Session file  
 ├── session_stats.json   # Session statistics  
