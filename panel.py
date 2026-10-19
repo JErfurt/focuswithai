@@ -105,6 +105,13 @@ LOGS = LogBuffer()
 
 def capture_output():
     """Вызывается из main.py до настройки logging"""
+    # Когда вывод идёт не в консоль (терминал IDE, перенаправление в файл), print()
+    # копится в буфере и строки появляются с большой задержкой или только при выходе
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(line_buffering=True)
+        except (AttributeError, ValueError):
+            pass
     if sys.stdout is not None and not isinstance(sys.stdout, _Tee):
         sys.stdout = _Tee(sys.stdout, LOGS)
     if sys.stderr is not None and not isinstance(sys.stderr, _Tee):
@@ -924,7 +931,7 @@ async def start_panel(runtime, config: Dict[str, Any]) -> Optional[web.AppRunner
         await runner.cleanup()
         return None
     url = f'http://127.0.0.1:{port}/'
-    print(f"[INFO] Веб-панель: {url}")
+    print(f"[INFO] Веб-панель: {url}", flush=True)
     if config.get('panel_open_browser'):
         webbrowser.open(url)
     return runner
