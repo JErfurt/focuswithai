@@ -1,190 +1,371 @@
 # ---------------------------------------------------------------
 # AI Client Module
 # Описание: Модуль для работы с различными AI провайдерами
-# Поддерживаемые провайдеры: Llama, Google Assistant
+# Поддерживаемые провайдеры:
+#   - llama            : llama.cpp сервер, эндпоинт /completion (сырой промпт)
+#   - openai           : любой OpenAI-совместимый /v1/chat/completions
+#                        (llama.cpp, Ollama, LM Studio, OpenAI, OpenRouter...)
+#   - google_assistant : Google Gemini API (алиас: gemini)
+# Все клиенты асинхронные (aiohttp), с таймаутами и повторами.
 # ---------------------------------------------------------------
 
-import json
-import requests
 import asyncio
-from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any
 import logging
+import random
+import re
+from abc import ABC, abstractmethod
+from typing import Optional, Dict, Any, List
+
+import aiohttp
+
+# Сообщение диалога: {"role": "user" | "assistant", "content": "..."}
+Message = Dict[str, str]
+
+# HTTP статусы, при которых имеет смысл повторить запрос
+RETRY_STATUSES = {408, 429, 500, 502, 503, 504}
+
+
+def assistant_name(config: Dict[str, Any]) -> str:
+    """Имя персонажа: из assistant_name, иначе из хвоста старого
+    сабпромпта вида '...\\nНастя:', иначе 'Ева'"""
+    if config.get('assistant_name'):
+        return config['assistant_name']
+    match = re.search(r"\n([^\n:]{1,30}):\s*$", config.get('punishment_subprompt', ''))
+    return match.group(1).strip() if match else 'Ева'
+
+
+class AIError(Exception):
+    """Ошибка генерации ответа"""
+
+
+# llama.cpp: exceed_context_size_error, OpenAI: context_length_exceeded,
+# Ollama/vLLM/прочие: "maximum context length", "too many tokens"
+CONTEXT_OVERFLOW_RE = re.compile(
+    r"exceed\w*_context|context_length_exceeded|context (size|length|window)|"
+    r"maximum context|too many tokens|prompt is too long", re.I)
+
+
+def is_context_overflow(error: Exception) -> bool:
+    """Ошибка из-за того, что промпт не влез в окно контекста модели"""
+    return bool(CONTEXT_OVERFLOW_RE.search(str(error)))
+
 
 class AIClient(ABC):
     """Абстрактный класс для AI клиентов"""
-    
+
+    name = "base"
+
+    def __init__(self, config: Dict[str, Any]):
+        self.timeout = config.get('ai_timeout', 30)
+        self.retries = config.get('ai_retries', 2)
+        self._session: Optional[aiohttp.ClientSession] = None
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=self.timeout)
+            )
+        return self._session
+
+    async def close(self):
+        if self._session and not self._session.closed:
+            await self._session.close()
+
+    async def _post_json(self, url: str, payload: Dict[str, Any],
+                         headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        """POST с повторами и экспоненциальной задержкой"""
+        session = await self._get_session()
+        last_error: Optional[Exception] = None
+        for attempt in range(self.retries + 1):
+            try:
+                async with session.post(url, json=payload, headers=headers) as response:
+                    if response.status == 200:
+                        return await response.json(content_type=None)
+                    body = (await response.text())[:500]
+                    last_error = AIError(f"{self.name}: HTTP {response.status}: {body}")
+                    if response.status not in RETRY_STATUSES:
+                        break
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                last_error = AIError(f"{self.name}: сетевая ошибка: {e!r}")
+
+            if attempt < self.retries:
+                delay = 2 ** attempt + random.random()
+                logging.warning(f"{last_error}. Повтор через {delay:.1f} с")
+                await asyncio.sleep(delay)
+        raise last_error or AIError(f"{self.name}: неизвестная ошибка")
+
     @abstractmethod
-    async def generate_response(self, prompt: str) -> str:
-        """Генерирует ответ на основе промпта"""
-        pass
-    
+    async def chat(self, messages: List[Message], system: str = "") -> str:
+        """Генерирует ответ ассистента на диалог. Бросает AIError при неудаче."""
+
     @abstractmethod
-    def is_available(self) -> bool:
+    async def check_available(self) -> bool:
         """Проверяет доступность сервиса"""
-        pass
+
+    async def generate_response(self, prompt: str) -> str:
+        """Совместимость со старым интерфейсом: один промпт -> ответ"""
+        return await self.chat([{"role": "user", "content": prompt}])
+
 
 class LlamaClient(AIClient):
-    """Клиент для работы с локальным Llama сервером"""
-    
-    def __init__(self, config: Dict[str, Any]):
-        self.url = config.get('llama_url', 'http://127.0.0.1:8080/completion')
-        self.stream = config.get('stream', False)
-        self.n_predict = config.get('n_predict', 400)
-        self.temperature = config.get('temperature', 0.7)
-        self.stop = config.get('stop', ["</s>", "Ева:", "Георгий:", "User:"])
-        self.repeat_last_n = config.get('repeat_last_n', 256)
-        self.repeat_penalty = config.get('repeat_penalty', 1.18)
-        self.penalize_nl = config.get('penalize_nl', False)
-        self.top_k = config.get('top_k', 40)
-        self.top_p = config.get('top_p', 0.95)
-        self.min_p = config.get('min_p', 0.05)
-        self.tfs_z = config.get('tfs_z', 1)
-        self.typical_p = config.get('typical_p', 1)
-        self.presence_penalty = config.get('presence_penalty', 0)
-        self.frequency_penalty = config.get('frequency_penalty', 0)
-        self.mirostat = config.get('mirostat', 0)
-        self.mirostat_tau = config.get('mirostat_tau', 5)
-        self.mirostat_eta = config.get('mirostat_eta', 0.1)
-        self.grammar = config.get('grammar', '')
-        self.n_probs = config.get('n_probs', 0)
-        self.min_keep = config.get('min_keep', 0)
-        self.image_data = config.get('image_data', [])
-        self.cache_prompt = config.get('cache_prompt', True)
-        self.api_key = config.get('api_key', '')
-    
-    def is_available(self) -> bool:
-        """Проверяет доступность Llama сервера"""
-        try:
-            response = requests.get(self.url.replace('/completion', '/health'), timeout=5)
-            return response.status_code == 200
-        except:
-            return False
-    
-    async def generate_response(self, prompt: str) -> str:
-        """Генерирует ответ через Llama API"""
-        try:
-            payload = {
-                "stream": self.stream,
-                "n_predict": self.n_predict,
-                "temperature": self.temperature,
-                "stop": self.stop,
-                "repeat_last_n": self.repeat_last_n,
-                "repeat_penalty": self.repeat_penalty,
-                "penalize_nl": self.penalize_nl,
-                "top_k": self.top_k,
-                "top_p": self.top_p,
-                "min_p": self.min_p,
-                "tfs_z": self.tfs_z,
-                "typical_p": self.typical_p,
-                "presence_penalty": self.presence_penalty,
-                "frequency_penalty": self.frequency_penalty,
-                "mirostat": self.mirostat,
-                "mirostat_tau": self.mirostat_tau,
-                "mirostat_eta": self.mirostat_eta,
-                "grammar": self.grammar,
-                "n_probs": self.n_probs,
-                "min_keep": self.min_keep,
-                "image_data": self.image_data,
-                "cache_prompt": self.cache_prompt,
-                "api_key": self.api_key,
-                "prompt": prompt
-            }
-            
-            response = requests.post(self.url, json=payload, timeout=30)
-            
-            if response.status_code == 200:
-                result = response.json()
-                return result.get("content", "").strip()
-            else:
-                logging.error(f"Llama API вернул ошибку: {response.status_code}")
-                return "Извините, произошла ошибка при генерации ответа."
-                
-        except Exception as e:
-            logging.error(f"Ошибка при запросе к Llama: {e}")
-            return "Извините, не удалось подключиться к AI сервису."
+    """Клиент для llama.cpp сервера (эндпоинт /completion с сырым промптом).
+    Диалог разворачивается в текстовый транскрипт вида
+    '<system>\\n\\nSystem: ...\\nЕва: ...\\nSystem: ...\\nЕва:'"""
 
-class GoogleAssistantClient(AIClient):
-    """Клиент для работы с Google Assistant API"""
-    
+    name = "llama"
+
+    # Параметры сэмплирования, которые передаются серверу как есть
+    SAMPLING_KEYS = {
+        'n_predict': 400, 'temperature': 0.7, 'repeat_last_n': 256,
+        'repeat_penalty': 1.18, 'penalize_nl': False, 'top_k': 40,
+        'top_p': 0.95, 'min_p': 0.05, 'tfs_z': 1, 'typical_p': 1,
+        'presence_penalty': 0, 'frequency_penalty': 0, 'mirostat': 0,
+        'mirostat_tau': 5, 'mirostat_eta': 0.1, 'grammar': '',
+        'n_probs': 0, 'min_keep': 0, 'cache_prompt': True,
+    }
+
     def __init__(self, config: Dict[str, Any]):
+        super().__init__(config)
+        self.url = config.get('llama_url', 'http://127.0.0.1:8080/completion')
+        self.api_key = config.get('api_key', '')
+        self.assistant_label = assistant_name(config)
+        self.user_label = config.get('llama_user_label', 'System')
+        self.sampling = {k: config.get(k, v) for k, v in self.SAMPLING_KEYS.items()}
+        stop = list(config.get('stop', ["</s>", "User:"]))
+        for label in (f"{self.assistant_label}:", f"{self.user_label}:"):
+            if label not in stop:
+                stop.append(label)
+        self.stop = stop
+
+    def _headers(self) -> Dict[str, str]:
+        return {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+
+    def render_prompt(self, messages: List[Message], system: str) -> str:
+        parts = [system.strip()] if system else []
+        for msg in messages:
+            label = self.assistant_label if msg["role"] == "assistant" else self.user_label
+            parts.append(f"{label}: {msg['content'].strip()}")
+        parts.append(f"{self.assistant_label}:")
+        return "\n\n".join(parts)
+
+    async def check_available(self) -> bool:
+        try:
+            session = await self._get_session()
+            health_url = self.url.rsplit('/', 1)[0] + '/health'
+            async with session.get(health_url, headers=self._headers(),
+                                   timeout=aiohttp.ClientTimeout(total=5)) as r:
+                return r.status == 200
+        except Exception:
+            return False
+
+    async def chat(self, messages: List[Message], system: str = "") -> str:
+        payload = dict(self.sampling)
+        payload.update({
+            "stream": False,
+            "stop": self.stop,
+            "prompt": self.render_prompt(messages, system),
+        })
+        result = await self._post_json(self.url, payload, self._headers())
+        return result.get("content", "").strip()
+
+
+class OpenAICompatibleClient(AIClient):
+    """Клиент для OpenAI-совместимого Chat Completions API.
+    Работает с llama.cpp (/v1), Ollama, LM Studio, vLLM, OpenAI, OpenRouter и т.д.
+    Преимущество перед /completion: сервер сам применяет chat-шаблон модели."""
+
+    name = "openai"
+
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__(config)
+        self.base_url = config.get('openai_base_url', 'http://127.0.0.1:8080/v1').rstrip('/')
+        self.api_key = config.get('openai_api_key', '')
+        self.model = config.get('openai_model', 'local-model')
+        self.max_tokens = config.get('openai_max_tokens', 300)
+        # Как в web UI llama.cpp: сэмплинг отправляется, только если задан явно.
+        # Иначе сервер берёт параметры из флагов запуска и из метаданных GGUF,
+        # где авторы модели прописывают рекомендованные значения
+        # (например, у LFM2.5 temperature 0.1, top_k 50).
+        self.sampling = {key: config[f'openai_{key}'] for key in self.SAMPLING_KEYS
+                         if config.get(f'openai_{key}') is not None}
+        self.thinking = config.get('openai_thinking', False)
+        self.extra = config.get('openai_extra_params', {})
+
+    SAMPLING_KEYS = ('temperature', 'top_k', 'top_p', 'min_p', 'presence_penalty',
+                     'frequency_penalty', 'repeat_penalty')
+
+    def _headers(self) -> Dict[str, str]:
+        return {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+
+    async def check_available(self) -> bool:
+        try:
+            session = await self._get_session()
+            async with session.get(f"{self.base_url}/models", headers=self._headers(),
+                                   timeout=aiohttp.ClientTimeout(total=5)) as r:
+                return r.status == 200
+        except Exception:
+            return False
+
+    async def chat(self, messages: List[Message], system: str = "") -> str:
+        msgs = ([{"role": "system", "content": system}] if system else []) + messages
+        payload = {
+            "model": self.model,
+            "messages": msgs,
+            "max_tokens": self.max_tokens,
+            "stream": False,
+            **self.sampling,
+        }
+        if not self.thinking:
+            # Короткие голосовые реплики не нуждаются в рассуждениях.
+            # enable_thinking понимают шаблоны Qwen3 и подобных (так делает web UI),
+            # thinking_budget_tokens=0 закрывает рассуждение у шаблонов,
+            # которые всегда открывают <think> (LFM2.5)
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
+            payload["thinking_budget_tokens"] = 0
+        payload.update(self.extra)
+        result = await self._post_json(f"{self.base_url}/chat/completions", payload, self._headers())
+        try:
+            choice = result["choices"][0]
+            message = choice["message"]
+        except (KeyError, IndexError, TypeError):
+            raise AIError(f"{self.name}: неожиданный формат ответа: {str(result)[:300]}")
+        content = (message.get("content") or "").strip()
+        if not content and message.get("reasoning_content"):
+            # Рассуждающая модель потратила весь лимит на размышления
+            raise AIError(f"{self.name}: ответ пуст, модель только рассуждала "
+                          f"(finish_reason={choice.get('finish_reason')}). Проверьте openai_thinking: false "
+                          "или запустите llama-server с --reasoning-budget 0")
+        return content
+
+
+class GeminiClient(AIClient):
+    """Клиент для Google Gemini API (generateContent)"""
+
+    name = "gemini"
+
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__(config)
         self.api_key = config.get('google_assistant_api_key', '')
-        self.project_id = config.get('google_project_id', '')
-        self.url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={self.api_key}"
+        self.model = config.get('google_model', 'gemini-2.5-flash')
+        self.url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
         self.max_tokens = config.get('google_max_tokens', 400)
         self.temperature = config.get('google_temperature', 0.7)
         self.top_p = config.get('google_top_p', 0.95)
         self.top_k = config.get('google_top_k', 40)
-    
-    def is_available(self) -> bool:
-        """Проверяет доступность Google Assistant API"""
+        # У 2.5-моделей "размышления" съедают лимит maxOutputTokens, и ответ
+        # приходит пустым. Для коротких реплик размышления не нужны.
+        default_budget = 0 if '2.5-flash' in self.model else None
+        self.thinking_budget = config.get('google_thinking_budget', default_budget)
+
+    async def check_available(self) -> bool:
         return bool(self.api_key)
-    
-    async def generate_response(self, prompt: str) -> str:
-        """Генерирует ответ через Google Assistant API"""
-        try:
-            payload = {
-                "contents": [
-                    {
-                        "parts": [
-                            {
-                                "text": prompt
-                            }
-                        ]
-                    }
-                ],
-                "generationConfig": {
-                    "maxOutputTokens": self.max_tokens,
-                    "temperature": self.temperature,
-                    "topP": self.top_p,
-                    "topK": self.top_k
-                }
-            }
-            
-            response = requests.post(self.url, json=payload, timeout=30)
-            
-            if response.status_code == 200:
-                result = response.json()
-                if 'candidates' in result and len(result['candidates']) > 0:
-                    content = result['candidates'][0]['content']
-                    if 'parts' in content and len(content['parts']) > 0:
-                        return content['parts'][0]['text'].strip()
-                return "Извините, не удалось получить ответ от AI."
-            else:
-                logging.error(f"Google Assistant API вернул ошибку: {response.status_code}")
-                return "Извините, произошла ошибка при генерации ответа."
-                
-        except Exception as e:
-            logging.error(f"Ошибка при запросе к Google Assistant: {e}")
-            return "Извините, не удалось подключиться к AI сервису."
+
+    async def chat(self, messages: List[Message], system: str = "") -> str:
+        contents = [
+            {"role": "model" if m["role"] == "assistant" else "user",
+             "parts": [{"text": m["content"]}]}
+            for m in messages
+        ]
+        generation_config: Dict[str, Any] = {
+            "maxOutputTokens": self.max_tokens,
+            "temperature": self.temperature,
+            "topP": self.top_p,
+            "topK": self.top_k,
+        }
+        if self.thinking_budget is not None:
+            generation_config["thinkingConfig"] = {"thinkingBudget": self.thinking_budget}
+        payload: Dict[str, Any] = {"contents": contents, "generationConfig": generation_config}
+        if system:
+            payload["systemInstruction"] = {"parts": [{"text": system}]}
+
+        # Ключ передаётся заголовком, а не в URL, чтобы не попадать в логи
+        result = await self._post_json(self.url, payload, {"x-goog-api-key": self.api_key})
+
+        block_reason = result.get("promptFeedback", {}).get("blockReason")
+        if block_reason:
+            raise AIError(f"{self.name}: запрос заблокирован: {block_reason}")
+        candidates = result.get("candidates") or []
+        if not candidates:
+            raise AIError(f"{self.name}: пустой список кандидатов")
+        candidate = candidates[0]
+        parts = candidate.get("content", {}).get("parts", [])
+        text = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
+        if not text:
+            raise AIError(f"{self.name}: пустой ответ (finishReason={candidate.get('finishReason')})")
+        return text
+
+
+class FallbackClient(AIClient):
+    """Перебирает провайдеров по очереди, пока один не вернёт непустой ответ"""
+
+    name = "fallback"
+
+    def __init__(self, clients: List[AIClient]):
+        self.clients = clients
+        self._session = None
+
+    async def check_available(self) -> bool:
+        results = await asyncio.gather(*(c.check_available() for c in self.clients))
+        return any(results)
+
+    async def chat(self, messages: List[Message], system: str = "") -> str:
+        errors = []
+        for client in self.clients:
+            try:
+                text = await client.chat(messages, system)
+                if text:
+                    return text
+                errors.append(f"{client.name}: пустой ответ")
+            except Exception as e:
+                errors.append(str(e))
+                logging.warning(f"Провайдер {client.name} не ответил, пробуем следующий: {e}")
+        raise AIError("; ".join(errors) or "нет провайдеров")
+
+    async def close(self):
+        for client in self.clients:
+            await client.close()
+
+
+PROVIDERS = {
+    'llama': LlamaClient,
+    'openai': OpenAICompatibleClient,
+    'google_assistant': GeminiClient,
+    'gemini': GeminiClient,
+}
+
 
 class AIClientFactory:
     """Фабрика для создания AI клиентов"""
-    
+
+    @staticmethod
+    def _create_single(provider: str, config: Dict[str, Any]) -> AIClient:
+        cls = PROVIDERS.get(provider.lower())
+        if cls is None:
+            logging.warning(f"Неизвестный AI провайдер: {provider}. Используется llama.")
+            cls = LlamaClient
+        return cls(config)
+
     @staticmethod
     def create_client(config: Dict[str, Any]) -> AIClient:
-        """Создает AI клиент на основе конфигурации"""
-        ai_provider = config.get('ai_provider', 'llama').lower()
-        
-        if ai_provider == 'llama':
-            return LlamaClient(config)
-        elif ai_provider == 'google_assistant':
-            return GoogleAssistantClient(config)
-        else:
-            logging.warning(f"Неизвестный AI провайдер: {ai_provider}. Используется Llama.")
-            return LlamaClient(config)
-    
+        """Создает AI клиент. Если задан ai_fallback_providers,
+        возвращает цепочку: основной провайдер, затем резервные."""
+        main_provider = config.get('ai_provider', 'llama')
+        fallbacks = [p for p in config.get('ai_fallback_providers', []) if p != main_provider]
+        if not fallbacks:
+            return AIClientFactory._create_single(main_provider, config)
+        return FallbackClient([AIClientFactory._create_single(p, config)
+                               for p in [main_provider, *fallbacks]])
+
     @staticmethod
-    def get_available_providers(config: Dict[str, Any]) -> Dict[str, bool]:
-        """Возвращает список доступных провайдеров"""
-        providers = {}
-        
-        # Проверяем Llama
-        llama_client = LlamaClient(config)
-        providers['llama'] = llama_client.is_available()
-        
-        # Проверяем Google Assistant
-        google_client = GoogleAssistantClient(config)
-        providers['google_assistant'] = google_client.is_available()
-        
-        return providers 
+    async def get_available_providers(config: Dict[str, Any]) -> Dict[str, bool]:
+        """Возвращает доступность каждого провайдера"""
+        result = {}
+        for name, cls in PROVIDERS.items():
+            if name == 'gemini':
+                continue
+            client = cls(config)
+            try:
+                result[name] = await client.check_available()
+            finally:
+                await client.close()
+        return result

@@ -13,28 +13,52 @@ A script to track active windows and remind users to return to their work applic
 - ✅ AI integration for personalized messages  
 - ✅ Session system (focus/break)  
 - ✅ Discord Rich Presence  
-- ✅ Support for multiple AI providers (Llama, Google Assistant)  
+- ✅ Support for multiple AI providers (llama.cpp, any OpenAI-compatible API, Gemini) with fallback chain
+- ✅ Context-aware AI: time of day, current session, distraction statistics
+- ✅ Dialogue memory: the assistant remembers recent replies and does not repeat facts
+- ✅ Async requests with timeouts and retries, TTS-safe output cleanup, offline fallback phrases
+- ✅ Local web panel: all settings, schedule and assistant memory in the browser instead of editing files
 
-## Supported AI Providers  
+## Supported AI Providers
 
-### 1. Llama (Local)  
-To use a local Llama server:  
-```json  
-{  
-  "ai_provider": "llama",  
-  "llama_url": "http://127.0.0.1:8080/completion"  
-}  
-```  
+### 1. llama.cpp (`/completion`, raw prompt)
+```json
+{
+  "ai_provider": "llama",
+  "llama_url": "http://127.0.0.1:8080/completion"
+}
+```
 
-### 2. Google Assistant API  
-To use Google Assistant API:  
-```json  
-{  
-  "ai_provider": "google_assistant",  
-  "google_assistant_api_key": "YOUR_API_KEY",  
-  "google_project_id": "YOUR_PROJECT_ID"  
-}  
-```  
+### 2. OpenAI-compatible Chat API (recommended for local models)
+Works with llama.cpp (`/v1`), Ollama, LM Studio, vLLM, OpenAI, OpenRouter.
+The server applies the model's own chat template, which usually gives better answers than `/completion`.
+```json
+{
+  "ai_provider": "openai",
+  "openai_base_url": "http://127.0.0.1:8080/v1",
+  "openai_model": "local-model",
+  "openai_api_key": ""
+}
+```
+Ollama: `"openai_base_url": "http://127.0.0.1:11434/v1"`, `"openai_model": "qwen2.5:7b"`.
+
+### 3. Google Gemini
+```json
+{
+  "ai_provider": "google_assistant",
+  "google_assistant_api_key": "YOUR_API_KEY",
+  "google_model": "gemini-2.5-flash"
+}
+```
+
+### Fallback chain
+If the main provider fails, the next one is tried. If all fail, a built-in phrase is spoken.
+```json
+{
+  "ai_provider": "llama",
+  "ai_fallback_providers": ["google_assistant"]
+}
+```
 
 ## Installation  
 
@@ -62,31 +86,142 @@ Run the script:
 python main.py  
 ```  
 
+## Web panel
+
+While `main.py` runs, the panel is at **http://127.0.0.1:8765/** (the address is printed at startup).
+It listens on localhost only.
+
+- **Today**: current block with a timer, pause, skip, +5 minutes, the active window, today's focus time
+  and distractions, the event log. Sound, assistant replies and Discord can be muted until restart.
+- **Schedule**: edit `sessions.jsonl` (drag to reorder, presets). Saved changes apply immediately.
+- **Focus rules, Character and replies, Model, Voice**: every `config.json` setting with defaults filled in.
+  Edits from all sections collect into one draft; changed fields are highlighted until you save (Ctrl+S).
+  You can test a reply, the AI connection, a voice and the reminder sound with unsaved settings.
+- **Assistant memory**: view and delete events, recent replies and told facts, reset statistics.
+- **Discord and debug**: restart or stop the tracker, log level and live logs.
+- **config.json manually**: raw editor for `config.json` and `sessions.jsonl`, keys the program
+  does not read, backups, export/import.
+
+Most settings are read at startup, so after saving press **Restart**: the tracker restarts itself
+(`start.bat` and llama-server keep running) and continues the current block where it was.
+Every save of `config.json` first copies the old file to `backups/` (last 10 are kept).
+API keys are never sent to the browser: the panel shows a mask and keeps the stored key unless you type a new one.
+
+To edit settings without starting the tracker:
+```bash
+python panel.py
+```
+
+Panel settings in `config.json`: `panel_enabled` (default `true`), `panel_port` (default `8765`),
+`panel_open_browser` (open the panel on startup, default `false`).
+
 ## Configuration  
 
-### Main Parameters:  
-- `ai_provider`: AI provider selection (`llama` or `google_assistant`)  
-- `target_apps`: List of target applications  
-- `reminder_interval`: Time until reminder (seconds)  
-- `punishment_interval`: Time until AI "punishment" (seconds)  
-- `praise_interval`: Time for AI "praise" (seconds)  
+### Main Parameters:
+- `ai_provider`: `llama`, `openai` or `google_assistant` (alias `gemini`)
+- `ai_fallback_providers`: list of backup providers
+- `target_apps`: List of target applications
+- `reminder_interval`: Time until reminder (seconds)
+- `punishment_interval`: Time until AI "punishment" (seconds)
+- `punishment_cooldown`: Minimum pause between AI punishments (seconds, default = `punishment_interval`)
+- `praise_interval`: Time for AI "praise" (seconds)
 
-### Llama Parameters:  
-- `llama_url`: Local Llama server URL  
-- `temperature`: Generation temperature  
-- `n_predict`: Maximum token count  
+### AI behaviour:
+- `prompt`: persona / system prompt
+- `assistant_name`: persona name (by default taken from the old `punishment_subprompt`, else `Ева`)
+- `punishment_instruction`, `praise_instruction`, `fact_instruction`: event prompts with placeholders
+  `{target}`, `{distraction}`, `{distracted_seconds}`, `{count}`, `{minutes}`, `{seconds}`.
+  Old `*_subprompt` keys still work.
+- `ai_response_rules`: extra rules added to the system prompt (short replies, no emoji, etc.)
+- `ai_history_size`: how many recent messages to send as dialogue history (default 0 = off).
+  Small local models copy their own previous replies from history, so keep it 0 for them;
+  for large models (Gemini, GPT) 6–10 can make replies more coherent
+- `ai_event_log_size`: how many recent events (distractions, praise, facts, finished sessions)
+  the model sees as a compact timestamped log (default 8). Gives continuity without copying
+- `ai_style_hints`: `{"punishment": [...], "praise": [...]}` random style hint added to each request
+  (e.g. "joke about it", "be strict"), never the same twice in a row
+- `ai_fact_topics`: list of fact topics; a random one is picked, excluding recent ones
+- `ai_repeat_threshold`: similarity (0..1, default 0.6) above which a reply counts as a repeat.
+  A repeat is re-asked once with a hint, then replaced with a fallback phrase
+- `ai_context_budget`: max prompt size in tokens (default 1500). Oldest history and events are
+  dropped to fit. If the server still reports a context overflow, the budget is halved automatically
+- `ai_memory_file`: where history, event log, recent replies and facts are saved (default
+  `assistant_memory.json`, `null` = off). Facts are kept across days, the rest only for the current day
+- `ai_max_chars`: max reply length passed to TTS (default 400)
+- `ai_max_sentences`: hard limit of sentences in a reply (default 2, 0 = off). Small models ignore "be brief"
+- `ai_drop_questions`: remove trailing questions from replies (default true), the user can't answer by voice
+- `fallback_phrases`: `{"punishment": [...], "praise": [...], "fact": [...]}` spoken when AI is unavailable
+- `ai_timeout`, `ai_retries`: request timeout (s) and retry count (default 30 and 2)
 
-### Google Assistant Parameters:  
-- `google_assistant_api_key`: Google API key  
-- `google_project_id`: Google project ID  
-- `google_max_tokens`: Maximum token count  
+### llama.cpp Parameters:
+- `llama_url`: `/completion` endpoint URL
+- `llama_user_label`: speaker label for events in the transcript (default `System`)
+- `api_key`: sent as `Authorization: Bearer`
+- `temperature`, `n_predict`, `top_k`, `top_p`, `min_p`, `stop`, ...: sampling parameters
+
+### OpenAI-compatible Parameters:
+- `openai_base_url`, `openai_model`, `openai_api_key`
+- `openai_max_tokens`: reply token limit (default 300)
+- `openai_temperature`, `openai_top_k`, `openai_top_p`, `openai_min_p`, `openai_presence_penalty`,
+  `openai_frequency_penalty`, `openai_repeat_penalty`: sent **only if set**
+- `openai_thinking`: allow reasoning (default `false`)
+- `openai_extra_params`: any extra request fields (applied last, override everything)
+
+Like the llama.cpp web UI, the client does not send sampling parameters by default.
+The server then uses its launch flags and the recommended values the model authors put
+into the GGUF metadata (e.g. LFM2.5 ships temperature 0.1 and top_k 50). Overriding them with
+generic values usually makes small models worse.
+
+Reasoning models (LFM2.5, Qwen3, ...) can spend the whole token limit on thinking and return an
+empty reply. With `openai_thinking: false` the client sends `chat_template_kwargs.enable_thinking=false`
+(Qwen-style templates, same as the web UI) and `thinking_budget_tokens=0` (templates that always
+open `<think>`, e.g. LFM2.5).
+
+Tip: do not put example phrases into prompts and rules. Small models copy them into every reply.
+
+### Text-to-speech:
+Replies are spoken by the first working engine in the chain. If an engine fails, the next one
+speaks, and the failed one is skipped for `tts_failure_cooldown` seconds (default 600), then retried.
+- `tts_engines`: chain order (default `["silero", "edge", "piper", "sapi"]`)
+- `silero`: offline [Silero](https://github.com/snakers4/silero-models) voices on CPU, natural Russian
+  with auto-stress, ~0.1 s per phrase, ~600 MB RAM. Needs PyTorch (CPU build, installed by `start.bat`:
+  `pip install torch --index-url https://download.pytorch.org/whl/cpu`) and the model
+  `voices/silero_v5_6_ru.pt` (downloaded by `start.bat`). Model license: CC BY-NC 4.0 (non-commercial).
+  `silero_speaker`: `xenia` (default), `baya`, `kseniya`, `aidar`, `eugene`;
+  `silero_rate`: `x-slow`..`x-fast`, `silero_pitch`: `x-low`..`x-high` (SSML prosody);
+  `silero_sample_rate` (default 48000), `silero_threads` (default 8)
+- `edge`: Microsoft Edge online voices, best quality. Unofficial API: if it starts failing with
+  `403`, update the package: `pip install -U edge-tts`.
+  `edge_tts_voice` (default `ru-RU-SvetlanaNeural`, also `ru-RU-DmitryNeural`), `edge_tts_rate` (e.g. `"+10%"`)
+- `piper`: offline [Piper](https://github.com/rhasspy/piper) voices, good quality, ~0.7 s per phrase on CPU.
+  `piper_model` (default `voices/ru_RU-irina-medium.onnx`, downloaded by `start.bat`),
+  `piper_length_scale` (>1 slower, <1 faster). Other Russian voices: `denis`, `dmitri`, `ruslan` from
+  [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices/tree/main/ru/ru_RU)
+- `sapi`: built-in Windows voices, offline, nothing to install. `sapi_voice` (default `Irina`), `sapi_rate` (-10..10)
+
+### Audio output:
+- `audio_frequency`: mixer sample rate (default 48000, matches most Windows devices)
+- `audio_buffer`: mixer buffer in samples (default 2048). If you still hear crackling, try 4096
+- `reminder_volume`: warning sound volume 0..1 (default 1.0)
+
+The warning sound and speech are decoded once into memory and play on separate channels,
+so the warning does not cut off speech.
+
+### Gemini Parameters:
+- `google_assistant_api_key`: API key (sent in a header, not in the URL)
+- `google_model`: model name (default `gemini-2.5-flash`)
+- `google_max_tokens`, `google_temperature`, `google_top_p`, `google_top_k`
+- `google_thinking_budget`: thinking token budget (0 by default for 2.5-flash so short replies are not cut off)
 
 ## File Structure  
 
 ```  
 workReminder/  
 ├── main.py              # Main script  
-├── ai_client.py         # AI client module  
+├── ai_client.py         # AI providers (llama.cpp, OpenAI-compatible, Gemini)  
+├── assistant.py         # Prompts, context, dialogue memory, TTS cleanup  
+├── panel.py             # Local web panel server  
+├── panel_web/           # Web panel page, styles and script  
 ├── config.json          # Configuration  
 ├── sessions.jsonl       # Session file  
 ├── session_stats.json   # Session statistics  
